@@ -466,9 +466,6 @@ public:
             }
         }
         else if (left.m_from_list && right.m_from_list) {
-            // TODO: support FIRST, LAST as new ExpressionComparisonTypes
-            // eg: ALL list.int > list.[FIRST].int
-
             if (REALM_UNLIKELY(left_cmp_type == Compare::None && right_cmp_type == Compare::None)) {
                 throw util::runtime_error("NONE vs NONE comparisons are not supported");
             }
@@ -1495,7 +1492,7 @@ iterator pattern. First solution can't exit, second solution requires internal s
 class LinkMap {
 public:
     LinkMap() = default;
-    LinkMap(ConstTableRef table, std::vector<ColKey> columns)
+    LinkMap(ConstTableRef table, std::vector<LinkRelationship> columns)
         : m_link_column_keys(std::move(columns))
     {
         set_base_table(table);
@@ -1522,7 +1519,9 @@ public:
     ColKey get_first_column_key() const
     {
         REALM_ASSERT(has_links());
-        return m_link_column_keys[0];
+        // FIXME: callers do not handle [SIZE] yet.
+        REALM_ASSERT_DEBUG(m_link_column_keys[0].type == LinkRelationship::Type::Column);
+        return m_link_column_keys[0].col_key;
     }
 
     void set_base_table(ConstTableRef table);
@@ -1533,7 +1532,7 @@ public:
         m_array_ptr = nullptr;
         switch (m_link_types[0]) {
             case col_type_Link:
-                if (m_link_column_keys[0].is_dictionary()) {
+                if (m_link_column_keys[0].col_key.is_dictionary()) {
                     m_array_ptr = LeafPtr(new (&m_storage.m_dict) ArrayInteger(alloc));
                 }
                 else {
@@ -1550,7 +1549,7 @@ public:
                 break;
         }
         // m_tables[0]->report_invalid_key(m_link_column_keys[0]);
-        cluster->init_leaf(m_link_column_keys[0], m_array_ptr.get());
+        cluster->init_leaf(m_link_column_keys[0].col_key, m_array_ptr.get());
         m_leaf_ptr = m_array_ptr.get();
     }
 
@@ -1573,7 +1572,7 @@ public:
         return res;
     }
 
-    std::vector<ObjKey> get_origin_ndxs(ObjKey key, size_t column = 0) const;
+    std::vector<ObjKey> get_origin_objkeys(ObjKey key, size_t column = 0) const;
 
     size_t count_links(size_t row) const
     {
@@ -1625,7 +1624,7 @@ private:
         map_links(row, mlv);
     }
 
-    mutable std::vector<ColKey> m_link_column_keys;
+    mutable std::vector<LinkRelationship> m_link_column_keys;
     std::vector<ColumnType> m_link_types;
     std::vector<ConstTableRef> m_tables;
     bool m_only_unary_links = true;
@@ -1663,7 +1662,8 @@ Value<T> make_value_for_link(bool only_unary_links, size_t size)
 // This class can be used as untyped base for expressions that handle object properties
 class ObjPropertyBase {
 public:
-    ObjPropertyBase(ColKey column, ConstTableRef table, std::vector<ColKey> links, ExpressionComparisonType type)
+    ObjPropertyBase(ColKey column, ConstTableRef table, std::vector<LinkRelationship> links,
+                    ExpressionComparisonType type)
         : m_link_map(table, std::move(links))
         , m_column_key(column)
         , m_comparison_type(type)
@@ -1771,7 +1771,7 @@ public:
         }
 
         for (ObjKey k : result) {
-            auto ndxs = m_link_map.get_origin_ndxs(k);
+            auto ndxs = m_link_map.get_origin_objkeys(k);
             ret.insert(ret.end(), ndxs.begin(), ndxs.end());
         }
 
@@ -1811,7 +1811,7 @@ class SimpleQuerySupport : public ObjPropertyExpr<T> {
 public:
     using ObjPropertyExpr<T>::links_exist;
 
-    SimpleQuerySupport(ColKey column, ConstTableRef table, std::vector<ColKey> links = {},
+    SimpleQuerySupport(ColKey column, ConstTableRef table, std::vector<LinkRelationship> links = {},
                        ExpressionComparisonType type = ExpressionComparisonType::Any)
         : ObjPropertyExpr<T>(column, table, std::move(links), type)
     {
@@ -2026,7 +2026,7 @@ Query string_compare(const Subexpr2<StringData>& left, const Subexpr2<StringData
 template <>
 class Columns<StringData> : public SimpleQuerySupport<StringData> {
 public:
-    Columns(ColKey column, ConstTableRef table, std::vector<ColKey> links = {},
+    Columns(ColKey column, ConstTableRef table, std::vector<LinkRelationship> links = {},
             ExpressionComparisonType type = ExpressionComparisonType::Any)
         : SimpleQuerySupport(column, table, links, type)
     {
@@ -2257,7 +2257,7 @@ public:
         : m_link_map(std::move(link_map))
     {
     }
-    BacklinkCount(ConstTableRef table, std::vector<ColKey> links = {})
+    BacklinkCount(ConstTableRef table, std::vector<LinkRelationship> links = {})
         : m_link_map(table, std::move(links))
     {
     }
@@ -2523,11 +2523,11 @@ public:
     {
     }
 
-    Columns(ColKey column_key, ConstTableRef table, const std::vector<ColKey>& links = {},
+    Columns(LinkRelationship rel, ConstTableRef table, const std::vector<LinkRelationship>& links = {},
             ExpressionComparisonType type = ExpressionComparisonType::Any)
         : m_link_map(table, links)
         , m_comparison_type(type)
-        , m_is_list(column_key.is_list())
+        , m_is_list(rel.is_unary_relationship())
     {
     }
 
@@ -2559,13 +2559,12 @@ public:
     }
 
     template <typename C>
-    SubColumns<C> column(ColKey column_key) const
+    SubColumns<C> column(LinkRelationship rel) const
     {
         // no need to pass along m_comparison_type because the only operations supported from
-        // the subsequent SubColumns are aggregate operations such as sum, min, max, avg where
-        // having
+        // the subsequent SubColumns are aggregate operations such as sum, min, max, avg
         REALM_ASSERT_DEBUG(m_comparison_type == ExpressionComparisonType::Any);
-        return SubColumns<C>(Columns<C>(column_key, m_link_map.get_target_table()), m_link_map);
+        return SubColumns<C>(Columns<C>(rel, m_link_map.get_target_table()), m_link_map);
     }
 
     const LinkMap& link_map() const
@@ -2646,7 +2645,7 @@ class Average;
 
 class ColumnListBase {
 public:
-    ColumnListBase(ColKey column_key, ConstTableRef table, const std::vector<ColKey>& links,
+    ColumnListBase(ColKey column_key, ConstTableRef table, const std::vector<LinkRelationship>& links,
                    ExpressionComparisonType type = ExpressionComparisonType::Any)
         : m_column_key(column_key)
         , m_link_map(table, links)
@@ -2702,7 +2701,7 @@ class ColumnListElementLength;
 template <typename T>
 class ColumnsCollection : public Subexpr2<T>, public ColumnListBase {
 public:
-    ColumnsCollection(ColKey column_key, ConstTableRef table, const std::vector<ColKey>& links = {},
+    ColumnsCollection(ColKey column_key, ConstTableRef table, const std::vector<LinkRelationship>& links = {},
                       ExpressionComparisonType type = ExpressionComparisonType::Any)
         : ColumnListBase(column_key, table, links, type)
         , m_is_nullable_storage(this->m_column_key.get_attrs().test(col_attr_Nullable))
@@ -2933,7 +2932,7 @@ class ColumnDictionaryKey;
 template <>
 class Columns<Dictionary> : public ColumnsCollection<Mixed> {
 public:
-    Columns(ColKey column, ConstTableRef table, std::vector<ColKey> links = {},
+    Columns(ColKey column, ConstTableRef table, std::vector<LinkRelationship> links = {},
             ExpressionComparisonType type = ExpressionComparisonType::Any)
         : ColumnsCollection<Mixed>(column, table, std::move(links), type)
     {
@@ -3409,20 +3408,21 @@ Query compare(const Subexpr2<Link>& left, const Obj& obj)
         const LinkMap& link_map = column->link_map();
         REALM_ASSERT(link_map.get_target_table()->get_key() == obj.get_table()->get_key());
 #ifdef REALM_OLDQUERY_FALLBACK
-        if (link_map.get_nb_hops() == 1) {
-            // We can fall back to Query::links_to for != and == operations on links
-            if (link_map.m_link_types[0] == col_type_Link || (link_map.m_link_types[0] == col_type_LinkList)) {
-                ConstTableRef t = column->get_base_table();
-                Query query(t);
-
-                if (std::is_same_v<Operator, Equal>) {
-                    return query.equal(link_map.m_link_column_keys[0], obj.get_link());
-                }
-                else {
-                    return query.not_equal(link_map.m_link_column_keys[0], obj.get_link());
-                }
-            }
-        }
+        // FIXME:
+//        if (link_map.get_nb_hops() == 1) {
+//            // We can fall back to Query::links_to for != and == operations on links
+//            if (link_map.m_link_types[0] == col_type_Link || (link_map.m_link_types[0] == col_type_LinkList)) {
+//                ConstTableRef t = column->get_base_table();
+//                Query query(t);
+//
+//                if (std::is_same_v<Operator, Equal>) {
+//                    return query.equal(link_map.m_link_column_keys[0], obj.get_link());
+//                }
+//                else {
+//                    return query.not_equal(link_map.m_link_column_keys[0], obj.get_link());
+//                }
+//            }
+//        }
 #endif
     }
     return make_expression<Compare<Operator>>(left.clone(), make_subexpr<KeyValue>(obj.get_key()));
@@ -3443,7 +3443,7 @@ public:
     using ObjPropertyExpr<T>::links_exist;
     using ObjPropertyBase::is_nullable;
 
-    Columns(ColKey column, ConstTableRef table, std::vector<ColKey> links = {},
+    Columns(ColKey column, ConstTableRef table, std::vector<LinkRelationship> links = {},
             ExpressionComparisonType type = ExpressionComparisonType::Any)
         : ObjPropertyExpr<T>(column, table, std::move(links), type)
     {

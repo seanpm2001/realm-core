@@ -76,6 +76,7 @@ namespace query_parser {
 class Arguments;
 class KeyPathMapping;
 class ParserDriver;
+class PathLinkNode;
 } // namespace query_parser
 
 enum class ExpressionComparisonType : unsigned char {
@@ -973,6 +974,40 @@ private:
     const Table* m_table;
 };
 
+struct LinkRelationship {
+    enum class Type : unsigned char {
+        Column,
+        First,
+        Last,
+        Index
+        // FIXME: handle strings to index through dictionaries?
+    };
+
+    LinkRelationship(ColKey col)
+        : type(Type::Column)
+        , col_key(col)
+    {
+    }
+    LinkRelationship(ColKey col, Type t, size_t ndx = realm::npos)
+        : type(t)
+        , col_key(col)
+        , index(ndx)
+    {
+    }
+
+    bool is_unary_relationship() const
+    {
+        return !(col_key.is_list() && type == Type::Column);
+    }
+
+    std::string describe() const;
+
+    Type type;
+    ColKey col_key;
+    size_t index;
+};
+
+
 // Class used to collect a chain of links when building up a Query following links.
 // It has member functions corresponding to the ones defined on Table.
 class LinkChain {
@@ -995,22 +1030,22 @@ public:
 
     ColKey get_current_col() const
     {
-        return m_link_cols.back();
+        return m_link_cols.back().col_key;
     }
 
-    LinkChain& link(ColKey link_column)
+    LinkChain& link(LinkRelationship link_column)
     {
         add(link_column);
         return *this;
     }
 
-    LinkChain& link(std::string col_name)
+    LinkChain& link(std::string col_name, LinkRelationship::Type type, size_t ndx = realm::npos)
     {
         auto ck = m_current_table->get_column_key(col_name);
         if (!ck) {
             throw std::runtime_error(util::format("%1 has no property %2", m_current_table->get_name(), col_name));
         }
-        add(ck);
+        add(LinkRelationship{ck, type, ndx});
         return *this;
     }
 
@@ -1024,16 +1059,16 @@ public:
     std::unique_ptr<Subexpr> subquery(Query subquery);
 
     template <class T>
-    inline Columns<T> column(ColKey col_key)
+    inline Columns<T> column(LinkRelationship rel)
     {
-        m_current_table->check_column(col_key);
+        m_current_table->check_column(rel.col_key);
 
         // Check if user-given template type equals Realm type.
-        auto ct = col_key.get_type();
+        auto ct = rel.col_key.get_type();
         if (ct == col_type_LinkList)
             ct = col_type_Link;
         if constexpr (std::is_same_v<T, Dictionary>) {
-            if (!col_key.is_dictionary())
+            if (!rel.col_key.is_dictionary())
                 throw LogicError(LogicError::type_mismatch);
         }
         else {
@@ -1042,10 +1077,10 @@ public:
         }
 
         if (std::is_same<T, Link>::value || std::is_same<T, LnkLst>::value || std::is_same<T, BackLink>::value) {
-            m_link_cols.push_back(col_key);
+            m_link_cols.push_back(rel);
         }
 
-        return Columns<T>(col_key, m_base_table, m_link_cols, m_comparison_type);
+        return Columns<T>(rel.col_key, m_base_table, m_link_cols, m_comparison_type);
     }
     template <class T>
     Columns<T> column(const Table& origin, ColKey origin_col_key)
@@ -1080,18 +1115,19 @@ public:
 private:
     friend class Table;
     friend class query_parser::ParserDriver;
+    friend class query_parser::PathLinkNode;
 
-    std::vector<ColKey> m_link_cols;
+    std::vector<LinkRelationship> m_link_cols;
     ConstTableRef m_current_table;
     ConstTableRef m_base_table;
     ExpressionComparisonType m_comparison_type;
 
-    void add(ColKey ck);
+    void add(LinkRelationship rel);
 
     template <class T>
-    std::unique_ptr<Subexpr> create_subexpr(ColKey col_key)
+    std::unique_ptr<Subexpr> create_subexpr(LinkRelationship rel)
     {
-        return std::make_unique<Columns<T>>(col_key, m_base_table, m_link_cols, m_comparison_type);
+        return std::make_unique<Columns<T>>(rel, m_base_table, m_link_cols, m_comparison_type);
     }
 };
 

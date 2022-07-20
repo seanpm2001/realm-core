@@ -3553,7 +3553,7 @@ TEST(Parser_Subquery)
     CHECK_EQUAL(message, "A subquery must operate on a list property, but 'fav_item' is type 'link'");
 }
 
-TEST_TYPES(Parser_AggregateShortcuts, std::true_type, std::false_type)
+ONLY_TYPES(Parser_AggregateShortcuts, std::true_type, std::false_type)
 {
     Group g;
     constexpr bool indexed_toggle = TEST_TYPE::value;
@@ -3636,6 +3636,22 @@ TEST_TYPES(Parser_AggregateShortcuts, std::true_type, std::false_type)
         items->add_search_index(item_name_col);
         t->add_search_index(id_col);
     }
+
+    verify_query(test_context, t, "items.@size == 0", 0);
+    verify_query(test_context, t, "items.@size == 4", 1);
+    verify_query(test_context, t, "items.@size == 10", 1);
+    verify_query(test_context, t, "items.@size == 3", 1);
+    verify_query(test_context, t, "items.@size > 0", 3);
+
+    verify_query(test_context, t, "items[SIZE] == 0", 0);
+    verify_query(test_context, t, "items[SIZE] == 4", 1);
+    verify_query(test_context, t, "items[SIZE] == 10", 1);
+    verify_query(test_context, t, "items[SIZE] == 3", 1);
+    verify_query(test_context, t, "items[SIZE] > 0", 3);
+
+    verify_query(test_context, t, "items[FIRST].name == 'milk'", 2);
+    verify_query(test_context, t, "items[LAST].name == 'cereal'", 3);
+    verify_query(test_context, t, "items[1].name == 'oranges'", 1);
 
     // any is implied over list properties
     verify_query(test_context, t, "items.price == 5.5", 2);

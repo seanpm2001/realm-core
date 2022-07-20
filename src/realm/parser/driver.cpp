@@ -707,17 +707,17 @@ Query TrueOrFalseNode::visit(ParserDriver* drv)
 std::unique_ptr<Subexpr> PropNode::visit(ParserDriver* drv)
 {
     bool is_keys = false;
-    if (identifier[0] == '@') {
-        if (identifier == "@values") {
+    if (identifier->col_name[0] == '@') {
+        if (identifier->col_name == "@values") {
             identifier = path->path_elems.back();
             path->path_elems.pop_back();
         }
-        else if (identifier == "@keys") {
+        else if (identifier->col_name == "@keys") {
             identifier = path->path_elems.back();
             path->path_elems.pop_back();
             is_keys = true;
         }
-        else if (identifier == "@links") {
+        else if (identifier->col_name == "@links") {
             // This is a backlink aggregate query
             auto link_chain = path->visit(drv, comp_type);
             auto sub = link_chain.get_backlink_count<Int>();
@@ -726,7 +726,7 @@ std::unique_ptr<Subexpr> PropNode::visit(ParserDriver* drv)
     }
     try {
         auto link_chain = path->visit(drv, comp_type);
-        std::unique_ptr<Subexpr> subexpr{drv->column(link_chain, identifier)};
+        std::unique_ptr<Subexpr> subexpr{identifier->column(link_chain, drv)};
         if (index) {
             if (auto s = dynamic_cast<Columns<Dictionary>*>(subexpr.get())) {
                 auto t = s->get_type();
@@ -748,12 +748,12 @@ std::unique_ptr<Subexpr> PropNode::visit(ParserDriver* drv)
     }
     catch (const std::runtime_error& e) {
         // Is 'identifier' perhaps length operator?
-        if (!post_op && is_length_suffix(identifier) && path->path_elems.size() > 0) {
+        if (!post_op && is_length_suffix(identifier->col_name) && path->path_elems.size() > 0) {
             // If 'length' is the operator, the last id in the path must be the name
             // of a list property
             auto prop = path->path_elems.back();
             path->path_elems.pop_back();
-            std::unique_ptr<Subexpr> subexpr{path->visit(drv, comp_type).column(prop)};
+            std::unique_ptr<Subexpr> subexpr{path->visit(drv, comp_type).column(prop->col_name)};
             if (auto list = dynamic_cast<ColumnListBase*>(subexpr.get())) {
                 if (auto length_expr = list->get_element_length())
                     return length_expr;
@@ -773,23 +773,29 @@ std::unique_ptr<Subexpr> SubqueryNode::visit(ParserDriver* drv)
                                        variable_name));
     }
     LinkChain lc = prop->path->visit(drv, prop->comp_type);
-    prop->identifier = drv->translate(lc, prop->identifier);
+    prop->identifier->col_name = drv->translate(lc, prop->identifier->col_name);
 
-    if (prop->identifier.find("@links") == 0) {
-        drv->backlink(lc, prop->identifier);
+    if (prop->identifier->col_name.find("@links") == 0) {
+        prop->identifier->backlink(lc, drv);
     }
     else {
-        ColKey col_key = lc.get_current_table()->get_column_key(prop->identifier);
+        ColKey col_key = lc.get_current_table()->get_column_key(prop->identifier->col_name);
         if (col_key.is_list() && col_key.get_type() != col_type_LinkList) {
-            throw InvalidQueryError(util::format(
-                "A subquery can not operate on a list of primitive values (property '%1')", prop->identifier));
+            throw InvalidQueryError(
+                util::format("A subquery can not operate on a list of primitive values (property '%1')",
+                             prop->identifier->col_name));
         }
         if (col_key.get_type() != col_type_LinkList) {
             throw InvalidQueryError(util::format("A subquery must operate on a list property, but '%1' is type '%2'",
-                                                 prop->identifier,
+                                                 prop->identifier->col_name,
                                                  realm::get_data_type_name(DataType(col_key.get_type()))));
         }
-        lc.link(prop->identifier);
+        if (prop->identifier->type != PathLinkNode::Type::ALL) {
+            throw InvalidQueryError(util::format("A subquery does not support indexing into a list (property '%1')",
+                                                 prop->identifier->col_name));
+        }
+        LinkRelationship rel = prop->identifier->get_relationship(lc, drv);
+        lc.link(rel);
     }
     TableRef previous_table = drv->m_base_table;
     drv->m_base_table = lc.get_current_table().cast_away_const();
@@ -848,35 +854,39 @@ std::unique_ptr<Subexpr> PostOpNode::visit(ParserDriver*, Subexpr* subexpr)
 std::unique_ptr<Subexpr> LinkAggrNode::visit(ParserDriver* drv)
 {
     auto link_chain = path->visit(drv);
-    auto subexpr = std::unique_ptr<Subexpr>(drv->column(link_chain, link));
+    if (link->type != PathLinkNode::ALL) {
+        throw InvalidQueryError(util::format("Operation '%1' cannot apply to a list which is indexed '%2'",
+                                             agg_op_type_to_str(aggr_op->type), link->col_name));
+    }
+    auto subexpr = std::unique_ptr<Subexpr>(link->column(link_chain, drv));
     auto link_prop = dynamic_cast<Columns<Link>*>(subexpr.get());
     if (!link_prop) {
         throw InvalidQueryError(util::format("Operation '%1' cannot apply to property '%2' because it is not a list",
                                              agg_op_type_to_str(aggr_op->type), link));
     }
-    prop = drv->translate(link_chain, prop);
-    auto col_key = link_chain.get_current_table()->get_column_key(prop);
+    prop->col_name = drv->translate(link_chain, prop->col_name);
+    LinkRelationship rel = prop->get_relationship(link_chain, drv);
 
     std::unique_ptr<Subexpr> sub_column;
-    switch (col_key.get_type()) {
+    switch (rel.col_key.get_type()) {
         case col_type_Int:
-            sub_column = link_prop->column<Int>(col_key).clone();
+            sub_column = link_prop->column<Int>(rel).clone();
             break;
         case col_type_Float:
-            sub_column = link_prop->column<float>(col_key).clone();
+            sub_column = link_prop->column<float>(rel).clone();
             break;
         case col_type_Double:
-            sub_column = link_prop->column<double>(col_key).clone();
+            sub_column = link_prop->column<double>(rel).clone();
             break;
         case col_type_Decimal:
-            sub_column = link_prop->column<Decimal>(col_key).clone();
+            sub_column = link_prop->column<Decimal>(rel).clone();
             break;
         case col_type_Timestamp:
-            sub_column = link_prop->column<Timestamp>(col_key).clone();
+            sub_column = link_prop->column<Timestamp>(rel).clone();
             break;
         default:
             throw InvalidQueryError(util::format("collection aggregate not supported for type '%1'",
-                                                 get_data_type_name(DataType(col_key.get_type()))));
+                                                 get_data_type_name(DataType(rel.col_key.get_type()))));
     }
     return aggr_op->visit(drv, sub_column.get());
 }
@@ -884,7 +894,7 @@ std::unique_ptr<Subexpr> LinkAggrNode::visit(ParserDriver* drv)
 std::unique_ptr<Subexpr> ListAggrNode::visit(ParserDriver* drv)
 {
     auto link_chain = path->visit(drv);
-    std::unique_ptr<Subexpr> subexpr{drv->column(link_chain, identifier)};
+    std::unique_ptr<Subexpr> subexpr{identifier->column(link_chain, drv)};
     return aggr_op->visit(drv, subexpr.get());
 }
 
@@ -1306,6 +1316,81 @@ std::unique_ptr<Subexpr> ListNode::visit(ParserDriver* drv, DataType hint)
     return ret;
 }
 
+LinkRelationship PathLinkNode::get_relationship(LinkChain& link_chain, ParserDriver* drv)
+{
+    using RType = LinkRelationship::Type;
+    RType rtype = RType::Column;
+    size_t index = realm::npos;
+    switch (type) {
+        case ALL:
+            rtype = RType::Column;
+            break;
+        case FIRST:
+            rtype = RType::First;
+            break;
+        case LAST:
+            rtype = RType::Last;
+            break;
+        case CONSTANT: {
+            REALM_ASSERT(constant);
+            rtype = RType::Index;
+            auto expr = constant->visit(drv, type_Int);
+            if (Value<int64_t>* val = dynamic_cast<Value<int64_t>*>(expr.get())) { // works on int, arg
+                Mixed mixed_val = val->get_mixed();
+                if (mixed_val.is_type(type_Int)) {
+                    index = mixed_val.get_int();
+                }
+            }
+            if (index == realm::npos) {
+                throw InvalidQueryError(
+                    util::format("Invalid index in link path: '%1'[%2]", col_name, constant->text));
+            }
+            break;
+        }
+    }
+    ColKey col_key = link_chain.get_current_table()->get_column_key(col_name);
+    return LinkRelationship{col_key, rtype, index};
+}
+
+std::unique_ptr<Subexpr> PathLinkNode::column(LinkChain& link_chain, ParserDriver* drv)
+{
+    col_name = drv->m_mapping.translate(link_chain, col_name);
+
+    if (col_name.find("@links.") == 0) {
+        backlink(link_chain, drv);
+        return link_chain.create_subexpr<Link>(ColKey());
+    }
+    LinkRelationship rel = get_relationship(link_chain, drv);
+    if (auto col = link_chain.column(rel)) {
+        return col;
+    }
+    throw InvalidQueryError(util::format("'%1' has no property: '%2'",
+                                         get_printable_name(link_chain.get_current_table()->get_name()), col_name));
+}
+
+void PathLinkNode::backlink(LinkChain& link_chain, ParserDriver* drv)
+{
+    auto table_column_pair = col_name.substr(7);
+    auto dot_pos = table_column_pair.find('.');
+
+    auto table_name = table_column_pair.substr(0, dot_pos);
+    table_name = drv->m_mapping.translate_table_name(table_name);
+    auto origin_table = drv->m_base_table->get_parent_group()->get_table(table_name);
+    auto column_name = table_column_pair.substr(dot_pos + 1);
+    ColKey origin_column;
+    if (origin_table) {
+        column_name = drv->m_mapping.translate(origin_table, column_name);
+        origin_column = origin_table->get_column_key(column_name);
+    }
+    if (!origin_column) {
+        auto current_table_name = link_chain.get_current_table()->get_name();
+        throw InvalidQueryError(util::format("No property '%1' found in type '%2' which links to type '%3'",
+                                             column_name, get_printable_name(table_name),
+                                             get_printable_name(current_table_name)));
+    }
+    link_chain.backlink(*origin_table, origin_column);
+}
+
 LinkChain PathNode::visit(ParserDriver* drv, ExpressionComparisonType comp_type)
 {
     LinkChain link_chain(drv->m_base_table, comp_type);
@@ -1461,44 +1546,6 @@ auto ParserDriver::cmp(const std::vector<ExpressionNode*>& values) -> std::pair<
     return {std::move(left), std::move(right)};
 }
 
-auto ParserDriver::column(LinkChain& link_chain, std::string identifier) -> SubexprPtr
-{
-    identifier = m_mapping.translate(link_chain, identifier);
-
-    if (identifier.find("@links.") == 0) {
-        backlink(link_chain, identifier);
-        return link_chain.create_subexpr<Link>(ColKey());
-    }
-    if (auto col = link_chain.column(identifier)) {
-        return col;
-    }
-    throw InvalidQueryError(util::format("'%1' has no property: '%2'",
-                                         get_printable_name(link_chain.get_current_table()->get_name()), identifier));
-}
-
-void ParserDriver::backlink(LinkChain& link_chain, const std::string& identifier)
-{
-    auto table_column_pair = identifier.substr(7);
-    auto dot_pos = table_column_pair.find('.');
-
-    auto table_name = table_column_pair.substr(0, dot_pos);
-    table_name = m_mapping.translate_table_name(table_name);
-    auto origin_table = m_base_table->get_parent_group()->get_table(table_name);
-    auto column_name = table_column_pair.substr(dot_pos + 1);
-    ColKey origin_column;
-    if (origin_table) {
-        column_name = m_mapping.translate(origin_table, column_name);
-        origin_column = origin_table->get_column_key(column_name);
-    }
-    if (!origin_column) {
-        auto current_table_name = link_chain.get_current_table()->get_name();
-        throw InvalidQueryError(util::format("No property '%1' found in type '%2' which links to type '%3'",
-                                             column_name, get_printable_name(table_name),
-                                             get_printable_name(current_table_name)));
-    }
-    link_chain.backlink(*origin_table, origin_column);
-}
-
 std::string ParserDriver::translate(LinkChain& link_chain, const std::string& identifier)
 {
     return m_mapping.translate(link_chain, identifier);
@@ -1593,15 +1640,16 @@ Query Table::query(const std::string& query_string, query_parser::Arguments& arg
     return driver.result->visit(&driver).set_ordering(driver.ordering->visit(&driver));
 }
 
-std::unique_ptr<Subexpr> LinkChain::column(const std::string& col)
+std::unique_ptr<Subexpr> LinkChain::column(const LinkRelationship& col)
 {
     auto col_key = m_current_table->get_column_key(col);
     if (!col_key) {
         return nullptr;
     }
     size_t list_count = 0;
-    for (ColKey link_key : m_link_cols) {
-        if (link_key.get_type() == col_type_LinkList || link_key.get_type() == col_type_BackLink) {
+    for (LinkRelationship link_key : m_link_cols) {
+        if ((link_key.col_key.get_type() == col_type_LinkList || link_key.col_key.get_type() == col_type_BackLink) &&
+            link_key.type == LinkRelationship::Type::Column) {
             list_count++;
         }
     }
@@ -1714,8 +1762,9 @@ std::unique_ptr<Subexpr> LinkChain::column(const std::string& col)
 std::unique_ptr<Subexpr> LinkChain::subquery(Query subquery)
 {
     REALM_ASSERT(m_link_cols.size() > 0);
-    auto col_key = m_link_cols.back();
-    return std::make_unique<SubQueryCount>(subquery, Columns<Link>(col_key, m_base_table, m_link_cols).link_map());
+    auto relationship = m_link_cols.back();
+    return std::make_unique<SubQueryCount>(subquery,
+                                           Columns<Link>(relationship, m_base_table, m_link_cols).link_map());
 }
 
 template <class T>

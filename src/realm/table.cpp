@@ -317,20 +317,36 @@ const char* get_data_type_name(DataType type) noexcept
 }
 } // namespace realm
 
-void LinkChain::add(ColKey ck)
+std::string LinkRelationship::describe() const
+{
+    switch (type) {
+        case Type::Column:
+            return "";
+        case Type::First:
+            return "[FIRST]";
+        case Type::Last:
+            return "[LAST]";
+        case Type::Index:
+            return util::format("[%1]", index);
+    }
+    return util::format("unknown LinkRelationshipType: %1", size_t(type));
+}
+
+void LinkChain::add(LinkRelationship rel)
 {
     // Link column can be a single Link, LinkList, or BackLink.
-    REALM_ASSERT(m_current_table->valid_column(ck));
-    ColumnType type = ck.get_type();
+    REALM_ASSERT(m_current_table->valid_column(rel.col_key));
+    ColumnType type = rel.col_key.get_type();
     if (type == col_type_LinkList || type == col_type_Link || type == col_type_BackLink) {
-        m_current_table = m_current_table->get_opposite_table(ck);
+        m_current_table = m_current_table->get_opposite_table(rel.col_key);
     }
     else {
         // Only last column in link chain is allowed to be non-link
         throw std::runtime_error(util::format("%1.%2 is not an object reference property",
-                                              m_current_table->get_name(), m_current_table->get_column_name(ck)));
+                                              m_current_table->get_name(),
+                                              m_current_table->get_column_name(rel.col_key)));
     }
-    m_link_cols.push_back(ck);
+    m_link_cols.push_back(rel);
 }
 
 

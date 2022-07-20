@@ -37,9 +37,11 @@ struct ObjLink;
 class StringData;
 class Timestamp;
 class LinkMap;
+struct LinkRelationship;
 class UUID;
 class TypeOfValue;
 enum class ExpressionComparisonType : unsigned char;
+enum class LinkRelationshipType : unsigned char;
 
 namespace util {
 namespace serializer {

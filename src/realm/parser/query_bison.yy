@@ -10,24 +10,25 @@
 %code requires {
   # include <string>
   namespace realm::query_parser {
-    class ParserDriver;
-    class ConstantNode;
-    class ListNode;
-    class PropertyNode;
-    class PostOpNode;
-    class AggrNode;
-    class ExpressionNode;
-    class ValueNode;
-    class OperationNode;
-    class TrueOrFalseNode;
-    class OrNode;
-    class AndNode;
-    class QueryNode;
-    class PathNode;
-    class DescriptorOrderingNode;
-    class DescriptorNode;
-    class PropNode;
-    class SubqueryNode;
+      class AggrNode;
+      class AndNode;
+      class ConstantNode;
+      class DescriptorNode;
+      class DescriptorOrderingNode;
+      class ExpressionNode;
+      class ListNode;
+      class OperationNode;
+      class OrNode;
+      class ParserDriver;
+      class PathLinkNode;
+      class PathNode;
+      class PostOpNode;
+      class PropertyNode;
+      class PropNode;
+      class QueryNode;
+      class SubqueryNode;
+      class TrueOrFalseNode;
+      class ValueNode;
   }
   using namespace realm::query_parser;
 }
@@ -75,10 +76,9 @@ using namespace realm::query_parser;
   ANY     "any"
   ALL     "all"
   NONE    "none"
-  BACKLINK "@links"
   MAX     "@max"
   MIN     "@min"
-  SUM     "@sun"
+  SUM     "@sum"
   AVG     "@average"
   AND     "&&"
   OR      "||"
@@ -110,7 +110,11 @@ using namespace realm::query_parser;
 %token <std::string> LIMIT "limit"
 %token <std::string> SIZE "@size"
 %token <std::string> TYPE "@type"
+%token <std::string> INDEX_SIZE  "SIZE"
+%token <std::string> INDEX_FIRST "FIRST"
+%token <std::string> INDEX_LAST  "LAST"
 %token <std::string> KEY_VAL "key or value"
+%token <std::string> BACKLINK "@links"
 %type  <bool> direction
 %type  <int> equality relational stringop
 %type  <ConstantNode*> constant
@@ -124,10 +128,11 @@ using namespace realm::query_parser;
 %type  <int> comp_type
 %type  <QueryNode*> query compare
 %type  <PathNode*> path
+%type  <PathLinkNode*> path_elem path_id
+%type  <std::string> id
 %type  <DescriptorOrderingNode*> post_query
 %type  <DescriptorNode*> sort sort_param distinct distinct_param limit
 %type  <SubqueryNode*> subquery
-%type  <std::string> path_elem id
 %type  <PropNode*> simple_prop
 
 %destructor { } <int>
@@ -153,7 +158,7 @@ query
     | query "&&" query          { $$ = drv.m_parse_nodes.create<AndNode>($1, $3); }
     | NOT query                 { $$ = drv.m_parse_nodes.create<NotNode>($2); }
     | '(' query ')'             { $$ = $2; }
-    | boolexpr                  { $$ =$1; }
+    | boolexpr                  { $$ = $1; }
 
 compare
     : expr equality expr        { $$ = drv.m_parse_nodes.create<EqualityNode>($1, $2, $3); }
@@ -185,16 +190,15 @@ value
     | list                      { $$ = drv.m_parse_nodes.create<ValueNode>($1);}
 
 prop
-    : path id post_op           { $$ = drv.m_parse_nodes.create<PropNode>($1, $2, $3); }
-    | path id '[' constant ']' post_op { $$ = drv.m_parse_nodes.create<PropNode>($1, $2, $4, $6); }
-    | comp_type path id post_op { $$ = drv.m_parse_nodes.create<PropNode>($2, $3, $4, ExpressionComparisonType($1)); }
-    | path BACKLINK post_op     { $$ = drv.m_parse_nodes.create<PropNode>($1, "@links", $3); }
-    | path id '.' aggr_op '.'  id   { $$ = drv.m_parse_nodes.create<LinkAggrNode>($1, $2, $4, $6); }
-    | path id '.' aggr_op       { $$ = drv.m_parse_nodes.create<ListAggrNode>($1, $2, $4); }
-    | subquery                  { $$ = $1; }
+    : path path_id post_op              { $$ = drv.m_parse_nodes.create<PropNode>($1, $2, $3); }
+    | path path_id '[' constant ']' post_op { $$ = drv.m_parse_nodes.create<PropNode>($1, $2, $4, $6); }
+    | comp_type path path_id post_op    { $$ = drv.m_parse_nodes.create<PropNode>($2, $3, $4, ExpressionComparisonType($1)); }
+    | path path_id aggr_op '.' path_id  { $$ = drv.m_parse_nodes.create<LinkAggrNode>($1, $2, $3, $5); }
+    | path path_id aggr_op              { $$ = drv.m_parse_nodes.create<ListAggrNode>($1, $2, $3); }
+    | subquery                          { $$ = $1; }
 
 simple_prop
-    : path id                   { $$ = drv.m_parse_nodes.create<PropNode>($1, $2); }
+    : path path_id                   { $$ = drv.m_parse_nodes.create<PropNode>($1, $2); }
 
 subquery
     : SUBQUERY '(' simple_prop ',' id ',' query ')' '.' SIZE   { $$ = drv.m_parse_nodes.create<SubqueryNode>($3, $5, $7); }
@@ -208,14 +212,14 @@ post_query
 distinct: DISTINCT '(' distinct_param ')' { $$ = $3; }
 
 distinct_param
-    : path id                   { $$ = drv.m_parse_nodes.create<DescriptorNode>(DescriptorNode::DISTINCT); $$->add($1->path_elems, $2);}
-    | distinct_param ',' path id { $1->add($3->path_elems, $4); $$ = $1; }
+    : path path_id                      { $$ = drv.m_parse_nodes.create<DescriptorNode>(DescriptorNode::DISTINCT); $$->add($1->path_elems, $2);}
+    | distinct_param ',' path path_id   { $1->add($3->path_elems, $4); $$ = $1; }
 
 sort: SORT '(' sort_param ')'    { $$ = $3; }
 
 sort_param
-    : path id direction         { $$ = drv.m_parse_nodes.create<DescriptorNode>(DescriptorNode::SORT); $$->add($1->path_elems, $2, $3);}
-    | sort_param ',' path id direction  { $1->add($3->path_elems, $4, $5); $$ = $1; }
+    : path path_id direction                 { $$ = drv.m_parse_nodes.create<DescriptorNode>(DescriptorNode::SORT); $$->add($1->path_elems, $2, $3);}
+    | sort_param ',' path path_id direction  { $1->add($3->path_elems, $4, $5); $$ = $1; }
 
 limit: LIMIT '(' NATURAL0 ')'   { $$ = drv.m_parse_nodes.create<DescriptorNode>(DescriptorNode::LIMIT, $3); }
 
@@ -264,6 +268,7 @@ post_op
     : %empty                    { $$ = nullptr; }
     | '.' SIZE                  { $$ = drv.m_parse_nodes.create<PostOpNode>($2, PostOpNode::SIZE);}
     | '.' TYPE                  { $$ = drv.m_parse_nodes.create<PostOpNode>($2, PostOpNode::TYPE);}
+    | '[' INDEX_SIZE ']'        { $$ = drv.m_parse_nodes.create<PostOpNode>($2, PostOpNode::SIZE);}
 
 aggr_op
     : MAX                       { $$ = drv.m_parse_nodes.create<AggrNode>(AggrNode::MAX);}
@@ -293,7 +298,13 @@ path
     | path path_elem            { $1->add_element($2); $$ = $1; }
 
 path_elem
-    : id '.'                    { $$ = $1; }
+    : path_id '.'                        { $1->set_type(PathLinkNode::ALL); $$ = $1; }
+    | path_id '[' INDEX_FIRST ']' '.'    { $1->set_type(PathLinkNode::FIRST); $$ = $1; }
+    | path_id '[' INDEX_LAST ']' '.'     { $1->set_type(PathLinkNode::LAST); $$ = $1; }
+    | path_id '[' constant ']' '.'       { $1->set_type($3); $$ = $1; }
+
+path_id
+    : id                { $$ = drv.m_parse_nodes.create<PathLinkNode>($1, PathLinkNode::ALL); }
 
 id  
     : ID                        { $$ = $1; }
@@ -304,6 +315,7 @@ id
     | LIKE                      { $$ = $1; }
     | BETWEEN                   { $$ = $1; }
     | KEY_VAL                   { $$ = $1; }
+    | BACKLINK                  { $$ = $1; }
     | SORT                      { $$ = $1; }
     | DISTINCT                  { $$ = $1; }
     | LIMIT                     { $$ = $1; }

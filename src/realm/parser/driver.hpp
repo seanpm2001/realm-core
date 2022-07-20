@@ -344,24 +344,57 @@ public:
     std::unique_ptr<Subexpr> visit(ParserDriver*, Subexpr* subexpr);
 };
 
+class PathLinkNode : public ParserNode {
+public:
+    enum Type { ALL, FIRST, LAST, CONSTANT };
+
+    std::string col_name;
+    Type type;
+    ConstantNode* constant = nullptr;
+
+    PathLinkNode(std::string col, Type t = Type::ALL)
+        : col_name(col)
+        , type(t)
+    {
+    }
+    PathLinkNode(std::string col, ConstantNode* index_literal)
+        : col_name(col)
+        , type(Type::CONSTANT)
+        , constant(index_literal)
+    {
+    }
+    void set_type(Type t)
+    {
+        type = t;
+    }
+    void set_type(ConstantNode* c)
+    {
+        type = Type::CONSTANT;
+        constant = c;
+    }
+    LinkRelationship get_relationship(LinkChain& link_chain, ParserDriver* drv);
+    std::unique_ptr<Subexpr> column(LinkChain& link_chain, ParserDriver* drv);
+    void backlink(LinkChain& link_chain, ParserDriver* drv);
+};
+
 class PathNode : public ParserNode {
 public:
-    std::vector<std::string> path_elems;
+    std::vector<PathLinkNode*> path_elems;
 
     LinkChain visit(ParserDriver*, ExpressionComparisonType = ExpressionComparisonType::Any);
-    void add_element(const std::string& str)
+    void add_element(PathLinkNode* node)
     {
-        path_elems.push_back(str);
+        path_elems.push_back(node);
     }
 };
 
 class ListAggrNode : public PropertyNode {
 public:
     PathNode* path;
-    std::string identifier;
+    PathLinkNode* identifier;
     AggrNode* aggr_op;
 
-    ListAggrNode(PathNode* node, std::string id, AggrNode* aggr)
+    ListAggrNode(PathNode* node, PathLinkNode* id, AggrNode* aggr)
         : path(node)
         , identifier(id)
         , aggr_op(aggr)
@@ -373,11 +406,11 @@ public:
 class LinkAggrNode : public PropertyNode {
 public:
     PathNode* path;
-    std::string link;
+    PathLinkNode* link;
     AggrNode* aggr_op;
-    std::string prop;
+    PathLinkNode* prop;
 
-    LinkAggrNode(PathNode* node, std::string id1, AggrNode* aggr, std::string id2)
+    LinkAggrNode(PathNode* node, PathLinkNode* id1, AggrNode* aggr, PathLinkNode* id2)
         : path(node)
         , link(id1)
         , aggr_op(aggr)
@@ -390,19 +423,19 @@ public:
 class PropNode : public PropertyNode {
 public:
     PathNode* path;
-    std::string identifier;
+    PathLinkNode* identifier;
     ExpressionComparisonType comp_type = ExpressionComparisonType::Any;
     PostOpNode* post_op = nullptr;
     ConstantNode* index = nullptr;
 
-    PropNode(PathNode* node, std::string id, ConstantNode* idx, PostOpNode* po_node)
+    PropNode(PathNode* node, PathLinkNode* id, ConstantNode* idx, PostOpNode* po_node)
         : path(node)
         , identifier(id)
         , post_op(po_node)
         , index(idx)
     {
     }
-    PropNode(PathNode* node, std::string id, PostOpNode* po_node,
+    PropNode(PathNode* node, PathLinkNode* id, PostOpNode* po_node,
              ExpressionComparisonType ct = ExpressionComparisonType::Any)
         : path(node)
         , identifier(id)
@@ -410,7 +443,7 @@ public:
         , post_op(po_node)
     {
     }
-    PropNode(PathNode* node, std::string id)
+    PropNode(PathNode* node, PathLinkNode* id)
         : path(node)
         , identifier(id)
         , comp_type(ExpressionComparisonType::Any)
@@ -437,7 +470,7 @@ public:
 class DescriptorNode : public ParserNode {
 public:
     enum Type { SORT, DISTINCT, LIMIT };
-    std::vector<std::vector<std::string>> columns;
+    std::vector<std::vector<PathLinkNode*>> columns;
     std::vector<bool> ascending;
     size_t limit = size_t(-1);
     Type type;
@@ -456,14 +489,14 @@ public:
     {
         return type;
     }
-    void add(const std::vector<std::string>& path, const std::string& id)
+    void add(const std::vector<PathLinkNode*>& path, PathLinkNode* last)
     {
         columns.push_back(path);
-        columns.back().push_back(id);
+        columns.back().push_back(last);
     }
-    void add(const std::vector<std::string>& path, const std::string& id, bool direction)
+    void add(const std::vector<PathLinkNode*>& path, PathLinkNode* last, bool direction)
     {
-        add(path, id);
+        add(path, last);
         ascending.push_back(direction);
     }
 };
@@ -481,7 +514,7 @@ public:
     std::unique_ptr<DescriptorOrdering> visit(ParserDriver* drv);
 };
 
-// Conducting the whole scanning and parsing of Calc++.
+// Conducting the whole scanning and parsing.
 class ParserDriver {
 public:
     using SubexprPtr = std::unique_ptr<Subexpr>;
@@ -536,8 +569,6 @@ public:
     template <class T>
     Query simple_query(int op, ColKey col_key, T val);
     std::pair<SubexprPtr, SubexprPtr> cmp(const std::vector<ExpressionNode*>& values);
-    SubexprPtr column(LinkChain&, std::string);
-    void backlink(LinkChain&, const std::string&);
     std::string translate(LinkChain&, const std::string&);
 
 private:
