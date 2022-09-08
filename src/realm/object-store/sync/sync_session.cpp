@@ -323,6 +323,16 @@ void SyncSession::update_error_and_mark_file_for_deletion(SyncError& error, Shou
     });
 }
 
+class Dummy {
+public:
+    const std::unique_ptr<realm::util::Logger> m_logger;
+
+    Dummy(std::unique_ptr<realm::util::Logger> logger)
+        : m_logger(std::move(logger))
+    {
+    }
+};
+
 void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_requests_action)
 {
     // first check that recovery will not be prevented
@@ -383,7 +393,7 @@ void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_re
         history.set_write_validator_factory({});
     }
 
-    auto logger = m_sync_manager->make_logger().get();
+    auto logger = new Dummy(m_sync_manager->make_logger());
     sync_session->assert_mutex_unlocked();
     if (m_flx_subscription_store) {
         sync::SubscriptionSet active = m_flx_subscription_store->get_active();
@@ -419,19 +429,19 @@ void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_re
                 // Keep the sync session alive while it's downloading, but then close
                 // it immediately
                 sync_session->close();
-                logger->info("----- Completed waiting");
+                logger->m_logger->info("----- Completed waiting");
                 if (auto strong_self = weak_self.lock()) {
                     if (s.is_ok()) {
-                        logger->info("----- Download success");
+                        logger->m_logger->info("----- Download success");
                         strong_self->handle_fresh_realm_downloaded(db, none, server_requests_action);
                     }
                     else {
-                        logger->info("----- Download failed");
+                        logger->m_logger->info("----- Download failed");
                         strong_self->handle_fresh_realm_downloaded(nullptr, s.reason(), server_requests_action);
                     }
                 }
                 else {
-                    logger->warn("----- Failed to acquire a strong reference to the session");
+                    logger->m_logger->warn("----- Failed to acquire a strong reference to the session");
                 }
             });
     }
