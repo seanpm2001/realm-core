@@ -127,6 +127,10 @@ struct SyncClient {
         m_client.wait_for_session_terminations_or_client_stopped();
     }
 
+    util::Logger* get_logger() {
+        return m_logger.get();
+    }
+
     ~SyncClient()
     {
         stop();
