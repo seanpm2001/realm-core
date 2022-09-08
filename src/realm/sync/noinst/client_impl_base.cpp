@@ -479,7 +479,8 @@ void Connection::initiate_reconnect_wait()
         milliseconds_type delay = 0;
         bool record_delay_as_zero = false;
         if (!zero_delay && !infinite_delay) {
-            logger.info("!!!!! Connection::initiate_reconnect_wait: %1", *m_reconnect_info.m_reason);
+            auto reason = static_cast<int>(* m_reconnect_info.m_reason);
+            logger.info("!!!!! Connection::initiate_reconnect_wait: %1", reason);
 
             switch (*m_reconnect_info.m_reason) {
                 case ConnectionTerminationReason::closed_voluntarily:
