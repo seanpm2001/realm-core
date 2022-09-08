@@ -332,6 +332,7 @@ void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_re
             handle_fresh_realm_downloaded(
                 nullptr, {"A client reset is required but the server does not permit recovery for this client"},
                 server_requests_action);
+            return;
         }
     }
     DBOptions options;
@@ -382,6 +383,7 @@ void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_re
         history.set_write_validator_factory({});
     }
 
+    auto logger = m_sync_manager->make_logger().get();
     sync_session->assert_mutex_unlocked();
     if (m_flx_subscription_store) {
         sync::SubscriptionSet active = m_flx_subscription_store->get_active();
@@ -417,13 +419,19 @@ void SyncSession::download_fresh_realm(sync::ProtocolErrorInfo::Action server_re
                 // Keep the sync session alive while it's downloading, but then close
                 // it immediately
                 sync_session->close();
+                logger->info("----- Completed waiting");
                 if (auto strong_self = weak_self.lock()) {
                     if (s.is_ok()) {
+                        logger->info("----- Download success");
                         strong_self->handle_fresh_realm_downloaded(db, none, server_requests_action);
                     }
                     else {
+                        logger->info("----- Download failed");
                         strong_self->handle_fresh_realm_downloaded(nullptr, s.reason(), server_requests_action);
                     }
+                }
+                else {
+                    logger->warn("----- Failed to acquire a strong reference to the session");
                 }
             });
     }
