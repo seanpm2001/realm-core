@@ -217,6 +217,7 @@ void Connection::activate()
         m_on_idle.trigger();
     // We cannot in general connect immediately, because a prior failure to
     // connect may require a delay before reconnecting (see `m_reconnect_info`).
+    logger.info("!!!! Connection::activate");
     initiate_reconnect_wait(); // Throws
 }
 
@@ -417,6 +418,7 @@ bool Connection::websocket_close_message_received(std::error_code error_code, St
         error_code.value() != 1000) {
         m_reconnect_info.m_reason = ConnectionTerminationReason::websocket_protocol_violation;
         constexpr bool try_again = true;
+        logger.info("!!!!! Connection::websocket_close_message_received");
         involuntary_disconnect(SessionErrorInfo{error_code, message, try_again});
     }
 
@@ -477,6 +479,8 @@ void Connection::initiate_reconnect_wait()
         milliseconds_type delay = 0;
         bool record_delay_as_zero = false;
         if (!zero_delay && !infinite_delay) {
+            logger.info("!!!!! Connection::initiate_reconnect_wait: %1", *m_reconnect_info.m_reason);
+
             switch (*m_reconnect_info.m_reason) {
                 case ConnectionTerminationReason::closed_voluntarily:
                 case ConnectionTerminationReason::read_or_write_error:
@@ -1119,6 +1123,7 @@ void Connection::disconnect(const SessionErrorInfo& info)
     m_sessions_enlisted_to_send.clear();
     m_sending = false;
 
+    logger.info("!!!!! Connection::disconnect: %1", info.message);
     report_connection_state_change(ConnectionState::disconnected, info); // Throws
     initiate_reconnect_wait();                                           // Throws
 }
