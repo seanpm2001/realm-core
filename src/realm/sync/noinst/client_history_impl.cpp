@@ -36,6 +36,11 @@
 
 namespace realm::sync {
 
+void ClientHistory::set_logger(const std::shared_ptr<util::Logger>& logger)
+{
+    m_logger = std::make_unique<util::PrefixLogger>(util::format("client history for %1: ", m_db->get_path()), logger);
+}
+
 void ClientHistory::set_client_file_ident_in_wt(version_type current_version, SaltedFileIdent client_file_ident)
 {
     ensure_updated(current_version); // Throws
@@ -680,6 +685,9 @@ void ClientHistory::prepare_for_write()
         return;
     }
 
+    if (m_logger) {
+        m_logger->debug("emplacing sync history arrays");
+    }
     m_arrays.emplace(*m_db, *m_group);
 }
 
@@ -690,9 +698,14 @@ Replication::version_type ClientHistory::add_changeset(BinaryData ct_changeset, 
     // null. It should probably be changed such that BinaryData(0,0) is always
     // interpreted as the empty string. For the purpose of setting null values,
     // BinaryColumn::set() should accept values of type Optional<BinaryData>().
+    auto old_size = ct_history_size();
     if (ct_changeset.is_null())
         ct_changeset = BinaryData("", 0);
     m_arrays->ct_history.add(ct_changeset); // Throws
+    if (m_logger) {
+        m_logger->debug("adding CT changeset to sync history in prepare_changeset. old size %1 new size %2", old_size,
+                        ct_history_size());
+    }
 
     REALM_ASSERT(!m_applying_server_changeset || !m_client_reset_changeset);
 
@@ -705,6 +718,10 @@ Replication::version_type ClientHistory::add_changeset(BinaryData ct_changeset, 
         REALM_ASSERT(m_ct_history_base_version + ct_history_size() ==
                      m_sync_history_base_version + sync_history_size());
         REALM_ASSERT(sync_changeset.size() == 0);
+        if (m_logger) {
+            m_logger->debug("returning from prepare_changeset after applying server changeset %1 + %2",
+                            m_ct_history_base_version, ct_history_size());
+        }
         return m_ct_history_base_version + ct_history_size();
     }
 
@@ -734,6 +751,11 @@ Replication::version_type ClientHistory::add_changeset(BinaryData ct_changeset, 
     std::uint_fast64_t uploadable_bytes = root.get_as_ref_or_tagged(s_progress_uploadable_bytes_iip).get_as_int();
     uploadable_bytes += entry.changeset.size();
     root.set(s_progress_uploadable_bytes_iip, RefOrTagged::make_tagged(uploadable_bytes));
+
+    if (m_logger) {
+        m_logger->debug("returning from prepare_changeset with new history version %1 + %2",
+                        m_ct_history_base_version, ct_history_size());
+    }
 
     return m_ct_history_base_version + ct_history_size();
 }
@@ -854,6 +876,9 @@ void ClientHistory::trim_ct_history()
         m_arrays->ct_history.erase(j);
     }
 
+    if (m_logger) {
+        m_logger->debug("trimming ct history in sync client. base version is %1 + %2", m_ct_history_base_version, n);
+    }
     m_ct_history_base_version += n;
 
     REALM_ASSERT(m_ct_history_base_version + ct_history_size() == m_sync_history_base_version + sync_history_size());
@@ -1145,6 +1170,9 @@ void ClientHistory::update_from_ref_and_version(ref_type ref, version_type versi
 {
     if (ref == 0) {
         // No history
+        if (m_logger) {
+            m_logger->debug("update_from_ref_and_version in sync client. no ref. new base version is %1", version);
+        }
         m_ct_history_base_version = version;
         m_sync_history_base_version = version;
         m_arrays.reset();
@@ -1158,6 +1186,11 @@ void ClientHistory::update_from_ref_and_version(ref_type ref, version_type versi
         m_arrays.emplace(m_db->get_alloc(), *m_group, ref);
     }
 
+    if (m_logger) {
+        m_logger->debug("update_from_ref_and_version in sync client. has ref. new base version is %1"
+                        " history size is %2",
+                        version, ct_history_size());
+    }
     m_ct_history_base_version = version - ct_history_size();
     m_sync_history_base_version = version - sync_history_size();
     REALM_ASSERT(m_arrays->reciprocal_transforms.size() == sync_history_size());

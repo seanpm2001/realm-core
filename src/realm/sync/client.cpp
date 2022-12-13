@@ -979,6 +979,7 @@ SessionWrapper::SessionWrapper(ClientImpl& client, DBRef db, std::shared_ptr<Sub
     REALM_ASSERT(m_db);
     REALM_ASSERT(m_db->get_replication());
     REALM_ASSERT(dynamic_cast<ClientReplication*>(m_db->get_replication()));
+    get_replication().get_history().set_logger(m_client.logger_ptr);
 
     if (m_flx_subscription_store) {
         auto versions_info = m_flx_subscription_store->get_version_info();

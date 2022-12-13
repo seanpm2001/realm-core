@@ -275,6 +275,8 @@ public: // Stuff in this section is only used by tests.
     // The history must be in a write transaction with version 'current_version'.
     void set_client_file_ident_in_wt(version_type current_version, SaltedFileIdent client_file_ident);
 
+    void set_logger(const std::shared_ptr<util::Logger>& logger);
+
 private:
     friend class ClientReplication;
     static constexpr version_type s_initial_version = 1;
@@ -286,6 +288,8 @@ private:
 
     ClientReplication& m_replication;
     DB* m_db = nullptr;
+
+    std::unique_ptr<util::Logger> m_logger;
 
     // FIXME: All history objects belonging to a particular client object
     // (sync::Client) should use a single shared transformer object.
