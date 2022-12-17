@@ -32,6 +32,7 @@
 #include <cstdio>
 #endif
 
+#include <functional>
 #include <iostream>
 #include <cstring>
 
@@ -278,7 +279,7 @@ bool AESCryptor::check_hmac(const void* src, size_t len, const uint8_t* hmac) co
     return result == 0;
 }
 
-size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size)
+size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size, std::string* debug)
 {
     REALM_ASSERT_EX(size % block_size == 0, size, block_size);
     // We need to throw DecryptionFailed if the key is incorrect or there has been a corruption in the data but
@@ -327,14 +328,21 @@ size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size)
     while (bytes_read < size) {
         ssize_t actual = check_read(fd, real_offset(pos), m_rw_buffer.get(), block_size);
 
-        if (actual == 0)
+        if (actual == 0) {
+            if (debug) {
+                *debug += util::format("actual == 0 %1/%2 (retries=%3)\n", bytes_read, size, retry_count);
+            }
             return bytes_read;
+        }
 
         iv_table& iv = get_iv_table(fd, pos, retry_count == 0 ? IVLookupMode::UseCache : IVLookupMode::Refetch);
         if (iv.iv1 == 0) {
             if (should_retry()) {
                 retry(std::string_view{m_rw_buffer.get(), block_size}, iv, "iv1 == 0");
                 continue;
+            }
+            if (debug) {
+                *debug += util::format("iv.iv1 == 0 %1/%2 (retries=%3)\n", bytes_read, size, retry_count);
             }
             // This block has never been written to, so we've just read pre-allocated
             // space. No memset() since the code using this doesn't rely on
@@ -351,6 +359,9 @@ size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size)
                     continue;
                 }
                 // Very first write was interrupted
+                if (debug) {
+                    *debug += util::format("iv.iv2 == 0 %1/%2\n", bytes_read, size);
+                }
                 return bytes_read;
             }
 
@@ -375,11 +386,14 @@ size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size)
                     retry(std::string_view{m_rw_buffer.get(), block_size}, iv, "i != bytes_read");
                     continue;
                 }
+                if (debug) {
+                    *debug += util::format("re-expand detected %1/%2 (retries=%3)\n", bytes_read, size, retry_count);
+                }
                 return bytes_read;
             }
         }
 
-        // We may expect some adress ranges of the destination buffer of
+        // We may expect some address ranges of the destination buffer of
         // AESCryptor::read() to stay unmodified, i.e. being overwritten with
         // the same bytes as already present, and may have read-access to these
         // from other threads while decryption is taking place.
@@ -399,6 +413,11 @@ size_t AESCryptor::read(FileDesc fd, off_t pos, char* dst, size_t size)
         dst += block_size;
         bytes_read += block_size;
         retry_count = 0;
+        if (debug) {
+            std::string_view sv(reinterpret_cast<char*>(iv.hmac1), 28);
+            *debug += util::format("page %1, iv %2, hmac %3, request %4, actual %5\n", size_t(pos) / block_size,
+                                   iv.iv1, std::hash<std::string_view>{}(sv), size, bytes_read);
+        }
     }
     return bytes_read;
 }
@@ -436,7 +455,7 @@ void AESCryptor::try_read_block(FileDesc fd, off_t pos, char* dst) noexcept
     crypt(mode_Decrypt, pos, dst, m_rw_buffer.get(), reinterpret_cast<const char*>(&iv.iv1));
 }
 
-void AESCryptor::write(FileDesc fd, off_t pos, const char* src, size_t size) noexcept
+void AESCryptor::write(FileDesc fd, off_t pos, const char* src, size_t size, std::string* debug) noexcept
 {
     REALM_ASSERT(size % block_size == 0);
     while (size > 0) {
@@ -459,6 +478,10 @@ void AESCryptor::write(FileDesc fd, off_t pos, const char* src, size_t size) noe
         check_write(fd, iv_table_pos(pos), &iv, sizeof(iv));
         check_write(fd, real_offset(pos), m_rw_buffer.get(), block_size);
 
+        if (debug) {
+            std::string_view sv(reinterpret_cast<char*>(iv.hmac1), 28);
+            *debug += util::format("iv %1, hmac %2", iv.iv1, std::hash<std::string_view>{}(sv));
+        }
         pos += block_size;
         src += block_size;
         size -= block_size;
@@ -639,7 +662,14 @@ void EncryptedFileMapping::refresh_page(size_t local_page_ndx, size_t required)
     if (!copy_up_to_date_page(local_page_ndx)) {
         size_t page_ndx_in_file = local_page_ndx + m_first_page;
         size_t size = static_cast<size_t>(1ULL << m_page_shift);
-        size_t actual = m_file.cryptor.read(m_file.fd, off_t(page_ndx_in_file << m_page_shift), addr, size);
+        std::string debug =
+            util::format("refresh page %1 pos %2; ", page_ndx_in_file, off_t(page_ndx_in_file << m_page_shift));
+        size_t actual = m_file.cryptor.read(m_file.fd, off_t(page_ndx_in_file << m_page_shift), addr, size, &debug);
+        if (m_file.validator.is_attached()) {
+            std::string read_path = util::format("%1.reader%2", m_file.validator.get_path(), getpid());
+            File read_validator(read_path, File::Mode::mode_Append);
+            read_validator.write(debug.c_str(), debug.size());
+        }
         if (actual < size) {
             if (actual >= required) {
                 memset(addr + actual, 0x55, size - actual);
@@ -653,6 +683,22 @@ void EncryptedFileMapping::refresh_page(size_t local_page_ndx, size_t required)
         m_num_decrypted++;
     clear(m_page_state[local_page_ndx], RefetchRequired);
     set(m_page_state[local_page_ndx], UpToDate);
+}
+
+void EncryptedFileMapping::print_for_range(size_t ref_start, size_t ref_end, std::string& debug)
+{
+    size_t first_page_ndx = ref_start >> m_page_shift;
+    size_t last_page_ndx = (ref_end - 1) >> m_page_shift; // FIXME: why - 1 ?
+    for (size_t page_ndx = first_page_ndx; page_ndx <= last_page_ndx; ++page_ndx) {
+        for (size_t i = 0; i < m_file.mappings.size(); ++i) {
+            EncryptedFileMapping* m = m_file.mappings[i];
+            if (m->contains_page(page_ndx)) {
+                size_t local_page_ndx = page_ndx - m->m_first_page;
+                debug += util::format("mapping %1/%5 contains [%2-%3] and has state %4\n", i, ref_start, ref_end,
+                                      m->m_page_state[local_page_ndx], m_file.mappings.size());
+            }
+        }
+    }
 }
 
 void EncryptedFileMapping::mark_for_refresh(size_t ref_start, size_t ref_end)
@@ -890,11 +936,12 @@ void EncryptedFileMapping::flush() noexcept
         }
 
         size_t page_ndx_in_file = local_page_ndx + m_first_page;
+        std::string debug;
         m_file.cryptor.write(m_file.fd, off_t(page_ndx_in_file << m_page_shift), page_addr(local_page_ndx),
-                             static_cast<size_t>(1ULL << m_page_shift));
+                             static_cast<size_t>(1ULL << m_page_shift), &debug);
         clear(m_page_state[local_page_ndx], Dirty);
-        debug_msg += util::format("page %1 (pos %2) has %3 writes\n", page_ndx_in_file,
-                                  off_t(page_ndx_in_file << m_page_shift), m_debug_writes[local_page_ndx]);
+        debug_msg += util::format("page %1 (pos %2) has %3 writes (%4)\n", page_ndx_in_file,
+                                  off_t(page_ndx_in_file << m_page_shift), m_debug_writes[local_page_ndx], debug);
         m_debug_writes[local_page_ndx] = 0;
 #ifdef REALM_DEBUG
         pages_written.push_back(page_ndx_in_file);

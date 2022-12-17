@@ -337,6 +337,12 @@ void encryption_mark_for_refresh(EncryptedFileMapping* mapping, size_t ref_start
     mapping->mark_for_refresh(ref_start, ref_end);
 }
 
+void encryption_print_for_range(EncryptedFileMapping* mapping, size_t ref_start, size_t ref_end, std::string& debug)
+{
+    UniqueLock lock(mapping_mutex);
+    mapping->print_for_range(ref_start, ref_end, debug);
+}
+
 namespace {
 size_t collect_total_workload() // must be called under lock
 {

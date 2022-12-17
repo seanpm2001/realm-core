@@ -1267,11 +1267,15 @@ void SlabAlloc::refresh_pages_for_versions(std::vector<VersionedTopRef> read_loc
     std::set<uint64_t> computed_pages_for_refresh;
     const size_t page_size = util::page_size();
     std::string debug_allocs;
-    File validator;
+    File validator, reader_validator;
     if (get_file().is_attached()) {
         std::string validator_path = get_file().get_path() + ".validate";
         if (File::exists(validator_path)) {
             validator.open(validator_path, File::Mode::mode_Read);
+            reader_validator.open(validator_path + util::format(".reader%1", getpid()), File::Mode::mode_Append);
+            std::string read_message = util::format("update from %1 to %2\n", read_locks[0].version,
+                                                    read_locks[read_locks.size() - 1].version);
+            reader_validator.write(read_message.c_str(), read_message.size());
         }
     }
     auto track_pages = [&page_size, &debug_allocs](std::set<uint64_t>& pages, const RefRange& alloc) {
@@ -1449,6 +1453,34 @@ void SlabAlloc::refresh_pages_for_versions(std::vector<VersionedTopRef> read_loc
                                                  start + size, cur_freelist_versions.get(current_ndx + 1),
                                                  read_locks[0].version, read_locks[read_locks.size() - 1].version);
                     debug_freelist_info(cur_freelist_positions, cur_freelist_lengths, cur_freelist_versions);
+
+                    for (auto& e : m_mappings) {
+                        if (auto m = e.primary_mapping.get_encrypted_mapping()) {
+                            debug_allocs += "\nprimary_mappings: \n";
+                            encryption_print_for_range(
+                                m, cur_freelist_positions.get_ref(),
+                                cur_freelist_positions.get_ref() + cur_freelist_positions.size(), debug_allocs);
+                            encryption_print_for_range(m, cur_freelist_lengths.get_ref(),
+                                                       cur_freelist_lengths.get_ref() + cur_freelist_lengths.size(),
+                                                       debug_allocs);
+                        }
+                        if (auto m = e.xover_mapping.get_encrypted_mapping()) {
+                            debug_allocs += "\nxover_mappings: \n";
+                            encryption_print_for_range(
+                                m, cur_freelist_positions.get_ref(),
+                                cur_freelist_positions.get_ref() + cur_freelist_positions.size(), debug_allocs);
+                            encryption_print_for_range(m, cur_freelist_lengths.get_ref(),
+                                                       cur_freelist_lengths.get_ref() + cur_freelist_lengths.size(),
+                                                       debug_allocs);
+                        }
+                    }
+
+                    if (reader_validator.is_attached()) {
+                        reader_validator.write(debug_allocs.c_str(), debug_allocs.size());
+                        reader_validator.sync();
+                        std::cout << util::format("check reader: %1\n", reader_validator.get_path());
+                    }
+
                     std::cout << debug_allocs;
                     REALM_ASSERT_EX(cur_end <= start, cur_start, prev_end, start, size);
                 }

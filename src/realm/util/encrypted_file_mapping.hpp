@@ -68,6 +68,8 @@ public:
     // The pages specified can not be in the Dirty state.
     // The pages specified will be refetched and re-decrypted by calls to read_barrier.
     void mark_for_refresh(size_t ref_start, size_t ref_end);
+    void print_for_range(size_t ref_start, size_t ref_end, std::string& debug);
+
 
     // Set this mapping to a new address and size
     // Flushes any remaining dirty pages from the old mapping

@@ -49,9 +49,9 @@ public:
 
     void set_file_size(off_t new_size);
 
-    size_t read(FileDesc fd, off_t pos, char* dst, size_t size);
+    size_t read(FileDesc fd, off_t pos, char* dst, size_t size, std::string* debug = nullptr);
     void try_read_block(FileDesc fd, off_t pos, char* dst) noexcept;
-    void write(FileDesc fd, off_t pos, const char* src, size_t size) noexcept;
+    void write(FileDesc fd, off_t pos, const char* src, size_t size, std::string* debug = nullptr) noexcept;
 
     void check_key(const uint8_t* key);
 
