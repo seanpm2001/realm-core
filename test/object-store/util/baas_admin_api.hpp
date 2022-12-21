@@ -142,6 +142,7 @@ struct AppCreateConfig {
         std::string name;
         std::string source;
         bool is_private;
+        bool run_as_system = false;
     };
 
     struct UserPassAuthConfig {

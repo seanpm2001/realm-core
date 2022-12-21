@@ -32,6 +32,7 @@ public:
         Schema schema;
         std::vector<std::string> queryable_fields;
         std::vector<AppCreateConfig::FLXSyncRole> default_roles;
+        bool enable_client_reset_function = false;
         bool dev_mode_enabled = false;
     };
 
@@ -56,6 +57,29 @@ public:
         AppCreateConfig::FLXSyncConfig flx_config;
         flx_config.queryable_fields = server_schema.queryable_fields;
         flx_config.default_roles = server_schema.default_roles;
+        if (server_schema.enable_client_reset_function) {
+            constexpr static std::string_view client_reset_fn_body(R"(
+                exports = async function(userId, appId = '') {
+                    const mongodb = context.services.get('BackingDB');
+                    console.log('user.id: ' + context.user.id);
+                    try {
+                      let dbName = '__realm_sync';
+                      if (appId !== '')
+                      {
+                        dbName = [dbName, '_', appId].join('');
+                      }
+                      const deletionResult = await mongodb.db(dbName).collection('clientfiles').deleteMany({ ownerId: userId });
+                      console.log('Deleted documents: ' + deletionResult.deletedCount);
+                      return { status: deletionResult.deletedCount > 0 ? 'success' : 'failure' };
+                    } catch(err) {
+                      throw 'Deletion failed: ' + err;
+                    }
+                };
+            )");
+
+            server_app_config.functions.push_back(
+                {"triggerClientResetOnServer", std::string{client_reset_fn_body}, false, true});
+        }
 
         server_app_config.flx_sync_config = std::move(flx_config);
         return create_app(server_app_config);

@@ -880,6 +880,7 @@ AppSession create_app(const AppCreateConfig& config)
             {"private", func.is_private},
             {"can_evaluate", nlohmann::json::object()},
             {"source", func.source},
+            {"run_as_system", func.run_as_system},
         });
         function_name_to_id.insert({func.name, create_func_resp["_id"]});
     }

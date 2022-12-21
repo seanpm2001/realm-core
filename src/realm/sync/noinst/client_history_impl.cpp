@@ -1192,6 +1192,8 @@ void ClientHistory::update_from_ref_and_version(ref_type ref, version_type versi
                         " history size is %2",
                         version, ct_history_size());
     }
+
+    REALM_ASSERT_3(version, >=, m_ct_history_base_version);
     m_ct_history_base_version = version - ct_history_size();
     m_sync_history_base_version = version - sync_history_size();
     REALM_ASSERT(m_arrays->reciprocal_transforms.size() == sync_history_size());

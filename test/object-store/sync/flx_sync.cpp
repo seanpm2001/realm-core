@@ -2789,6 +2789,86 @@ TEST_CASE("flx: compensating write errors get re-sent across sessions", "[sync][
     REQUIRE(top_level_table->is_empty());
 }
 
+TEST_CASE("RCORE-1350 repro", "[flx][sync][app]") {
+    auto server_schema = FLXSyncTestHarness::default_server_schema();
+    server_schema.enable_client_reset_function = true;
+    FLXSyncTestHarness harness("nikola_repro", std::move(server_schema));
+
+    auto test_config = harness.make_test_file();
+
+    auto always_synced_id = ObjectId::gen();
+    auto maybe_synced_id = ObjectId::gen();
+
+    auto before_reset_pf = util::make_promise_future<void>();
+
+    test_config.sync_config->client_resync_mode = ClientResyncMode::Recover;
+    test_config.sync_config->notify_before_client_reset =
+        [always_synced_id, maybe_synced_id,
+         wrapped_promise =
+             util::CopyablePromiseHolder(std::move(before_reset_pf.promise))](SharedRealm before_realm) mutable {
+            auto promise = wrapped_promise.get_promise();
+            auto table = before_realm->read_group().get_table("class_TopLevel");
+            if (auto obj_key = table->find_primary_key(always_synced_id); !obj_key) {
+                promise.set_error({ErrorCodes::RuntimeError, "could not find always synced id"});
+            }
+            if (auto obj_key = table->find_primary_key(maybe_synced_id); !obj_key) {
+                promise.set_error({ErrorCodes::RuntimeError, "could not find maybe synced id"});
+            }
+
+            promise.emplace_value();
+        };
+
+    auto realm = Realm::get_shared_realm(test_config);
+
+    auto mut_subs = realm->get_latest_subscription_set().make_mutable_copy();
+    mut_subs.insert_or_assign(Query(realm->read_group().get_table("class_TopLevel")));
+    mut_subs.commit();
+
+    CppContext c(realm);
+    realm->begin_transaction();
+    Object::create(c, realm, "TopLevel",
+                   util::Any(AnyDict{
+                       {"_id", always_synced_id},
+                   }));
+    realm->commit_transaction();
+
+    wait_for_upload(*realm);
+    realm->sync_session()->log_out();
+
+    realm->begin_transaction();
+    Object::create(c, realm, "TopLevel",
+                   util::Any(AnyDict{
+                       {"_id", maybe_synced_id},
+                   }));
+    realm->commit_transaction();
+
+    auto client_reset_triggered_pf = util::make_promise_future<bson::Bson>();
+    auto user = harness.app()->current_user();
+    harness.app()->call_function(user, "triggerClientResetOnServer",
+                                 bson::BsonArray{user->identity(), harness.session().app_session().server_app_id},
+                                 [promise = std::move(client_reset_triggered_pf.promise)](
+                                     util::Optional<bson::Bson>&& result, util::Optional<AppError> error) mutable {
+                                     if (error) {
+                                         promise.set_error({ErrorCodes::RuntimeError, error->message});
+                                     }
+                                     REALM_ASSERT(result);
+                                     promise.emplace_value(std::move(*result));
+                                 });
+
+    auto client_reset_triggered_result =
+        static_cast<bson::IndexedMap<bson::Bson>>(client_reset_triggered_pf.future.get());
+    REQUIRE(static_cast<std::string>(client_reset_triggered_result["status"]) == "success");
+
+    realm->sync_session()->revive_if_needed();
+
+    before_reset_pf.future.get();
+
+    wait_for_advance(*realm);
+    auto table = realm->read_group().get_table("class_TopLevel");
+    REQUIRE(table->find_primary_key(always_synced_id));
+    REQUIRE(table->find_primary_key(maybe_synced_id));
+}
+
 } // namespace realm::app
 
 #endif // REALM_ENABLE_AUTH_TESTS
