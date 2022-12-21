@@ -1189,11 +1189,11 @@ void ClientHistory::update_from_ref_and_version(ref_type ref, version_type versi
 
     if (m_logger) {
         m_logger->debug("update_from_ref_and_version in sync client. has ref. new base version is %1"
-                        " history size is %2",
-                        version, ct_history_size());
+                        " history size is %2 old base version was %3",
+                        version, ct_history_size(), m_ct_history_base_version);
     }
 
-    REALM_ASSERT_3(version, >=, m_ct_history_base_version);
+    REALM_ASSERT_3(version, >=, m_ct_history_base_version + ct_history_size());
     m_ct_history_base_version = version - ct_history_size();
     m_sync_history_base_version = version - sync_history_size();
     REALM_ASSERT(m_arrays->reciprocal_transforms.size() == sync_history_size());

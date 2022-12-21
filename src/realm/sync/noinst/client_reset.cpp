@@ -603,6 +603,7 @@ LocalVersionIDs perform_client_reset_diff(DBRef db_local, DBRef db_remote, sync:
         // the way to the final state, but since separate commits are necessary, this is
         // unavoidable.
         wt_local = db_local->start_write();
+//        current_version_local = wt_local->get_version_of_current_transaction().version;
         RecoverLocalChangesetsHandler handler{*wt_local, *frozen_pre_local_state, logger};
         handler.process_changesets(local_changes, std::move(pending_subscriptions)); // throws on error
         // The new file ident is set as part of the final commit. This is to ensure that if
