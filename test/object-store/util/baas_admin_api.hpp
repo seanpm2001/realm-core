@@ -191,6 +191,7 @@ struct AppCreateConfig {
     bool enable_custom_token_auth = false;
 };
 
+const AppCreateConfig::FunctionDef& make_client_reset_function();
 AppCreateConfig default_app_config(const std::string& base_url);
 AppCreateConfig minimal_app_config(const std::string& base_url, const std::string& name, const Schema& schema);
 

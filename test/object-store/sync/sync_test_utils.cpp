@@ -21,6 +21,7 @@
 #include "util/baas_admin_api.hpp"
 
 #include <realm/object-store/object_store.hpp>
+#include <realm/object-store/impl/object_accessor_impl.hpp>
 #include <realm/object-store/sync/mongo_client.hpp>
 #include <realm/object-store/sync/mongo_collection.hpp>
 #include <realm/object-store/sync/mongo_database.hpp>
@@ -29,6 +30,8 @@
 #include <realm/util/base64.hpp>
 #include <realm/util/hex_dump.hpp>
 #include <realm/util/sha_crypto.hpp>
+
+using namespace std::string_literals;
 
 namespace realm {
 
@@ -511,26 +514,48 @@ struct BaasFLXClientReset : public TestClientReset {
         REALM_ASSERT(m_local_config.sync_config->flx_sync_requested);
         REALM_ASSERT(m_remote_config.sync_config->flx_sync_requested);
         REALM_ASSERT(m_local_config.schema->find(c_object_schema_name) != m_local_config.schema->end());
+        const auto& functions = m_test_app_session.app_session().config.functions;
+        REALM_ASSERT(std::any_of(functions.begin(), functions.end(), [](const AppCreateConfig::FunctionDef& def) {
+            return def.name == make_client_reset_function().name;
+        }));
     }
 
     void run() override
     {
         m_did_run = true;
         const AppSession& app_session = m_test_app_session.app_session();
+        const auto& app = m_test_app_session.app();
 
         auto realm = Realm::get_shared_realm(m_local_config);
         auto session = realm->sync_session();
-        const ObjectId pk_of_added_object("123456789000000000000000");
+        const ObjectId pk_of_added_object = ObjectId::gen();
         {
             if (m_on_setup) {
                 m_on_setup(realm);
             }
-            constexpr bool create_object = true;
-            subscribe_to_object_by_id(realm, pk_of_added_object, create_object);
 
-            wait_for_object_to_persist(m_local_config.sync_config->user, app_session,
-                                       std::string(c_object_schema_name),
-                                       {{std::string(c_id_col_name), pk_of_added_object}});
+            auto mut_subs = realm->get_latest_subscription_set().make_mutable_copy();
+
+            auto table = realm->read_group().get_table(ObjectStore::table_name_for_object_type(c_object_schema_name));
+            REALM_ASSERT(table);
+            mut_subs.insert_or_assign(Query(table));
+            auto subs = std::move(mut_subs).commit();
+            realm->begin_transaction();
+            CppContext c(realm);
+            int64_t r1 = random_int();
+            int64_t r2 = random_int();
+            int64_t r3 = random_int();
+            int64_t sum = uint64_t(r1) + r2 + r3;
+
+            Object::create(c, realm, c_object_schema_name,
+                           std::any(AnyDict{{std::string{c_id_col_name}, pk_of_added_object},
+                                            {std::string{c_str_col_name}, "initial value"s},
+                                            {"list_of_ints_field", std::vector<std::any>{r1, r2, r3}},
+                                            {"sum_of_list_field", sum}}));
+
+            realm->commit_transaction();
+
+            wait_for_upload(*realm);
             session->log_out();
 
             if (m_make_local_changes) {
@@ -538,20 +563,22 @@ struct BaasFLXClientReset : public TestClientReset {
             }
         }
 
-        // cause a client reset by restarting the sync service
-        // this causes the server's sync history to be resynthesized
-        auto baas_sync_service = app_session.admin_api.get_sync_service(app_session.server_app_id);
-        auto baas_sync_config = app_session.admin_api.get_config(app_session.server_app_id, baas_sync_service);
-        REQUIRE(app_session.admin_api.is_sync_enabled(app_session.server_app_id));
-        app_session.admin_api.disable_sync(app_session.server_app_id, baas_sync_service.id, baas_sync_config);
-        timed_sleeping_wait_for([&] {
-            return app_session.admin_api.is_sync_terminated(app_session.server_app_id);
-        });
-        app_session.admin_api.enable_sync(app_session.server_app_id, baas_sync_service.id, baas_sync_config);
-        REQUIRE(app_session.admin_api.is_sync_enabled(app_session.server_app_id));
-        if (app_session.config.dev_mode_enabled) { // dev mode is not sticky across a reset
-            app_session.admin_api.set_development_mode_to(app_session.server_app_id, true);
-        }
+        auto client_reset_triggered_pf = util::make_promise_future<bson::Bson>();
+        auto user = m_local_config.sync_config->user;
+        app->call_function(user, "triggerClientResetOnServer",
+                           bson::BsonArray{user->identity(), app_session.server_app_id},
+                           [promise = std::move(client_reset_triggered_pf.promise)](
+                               util::Optional<bson::Bson>&& result, util::Optional<app::AppError> error) mutable {
+                               if (error) {
+                                   promise.set_error({ErrorCodes::RuntimeError, error->message});
+                               }
+                               REALM_ASSERT(result);
+                               promise.emplace_value(std::move(*result));
+                           });
+
+        auto client_reset_triggered_result =
+            static_cast<bson::IndexedMap<bson::Bson>>(client_reset_triggered_pf.future.get());
+        REQUIRE(static_cast<std::string>(client_reset_triggered_result["status"]) == "success");
 
         {
             auto realm2 = Realm::get_shared_realm(m_remote_config);
@@ -597,28 +624,6 @@ struct BaasFLXClientReset : public TestClientReset {
     }
 
 private:
-    void subscribe_to_object_by_id(SharedRealm realm, ObjectId pk, bool create_object = false)
-    {
-        auto mut_subs = realm->get_latest_subscription_set().make_mutable_copy();
-        Group::TableNameBuffer buffer;
-        auto class_name = Group::class_name_to_table_name(c_object_schema_name, buffer);
-        TableRef table = realm->read_group().get_table(class_name);
-        REALM_ASSERT(table);
-        ColKey id_col = table->get_column_key(c_id_col_name);
-        REALM_ASSERT(id_col);
-        ColKey str_col = table->get_column_key(c_str_col_name);
-        REALM_ASSERT(str_col);
-        Query query_for_added_object = table->where().equal(id_col, pk);
-        mut_subs.insert_or_assign(query_for_added_object);
-        auto subs = std::move(mut_subs).commit();
-        if (create_object) {
-            realm->begin_transaction();
-            table->create_object_with_primary_key(pk, {{str_col, "initial value"}});
-            realm->commit_transaction();
-        }
-        subs.get_state_change_notification(sync::SubscriptionSet::State::Complete).get();
-    }
-
     void load_initial_data(SharedRealm realm)
     {
         auto mut_subs = realm->get_latest_subscription_set().make_mutable_copy();

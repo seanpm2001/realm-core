@@ -5271,7 +5271,7 @@ TEST_CASE("app: flx-sync basic tests", "[c_api][flx][sync]") {
                         {"name", PropertyType::String | PropertyType::Nullable},
                         {"value", PropertyType::Int | PropertyType::Nullable}}}};
 
-        return FLXSyncTestHarness::ServerSchema{std::move(schema), {"name", "value"}};
+        return FLXSyncTestHarness::FLXServerConfig{std::move(schema), {"name", "value"}};
     };
 
     FLXSyncTestHarness harness("c_api_flx_sync_test", make_schema());

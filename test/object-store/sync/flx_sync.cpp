@@ -316,10 +316,14 @@ TEST_CASE("flx: client reset", "[sync][flx][app][client reset]") {
          }},
     };
 
+    FLXSyncTestHarness::FLXServerConfig server_config;
+    server_config.schema = schema;
+    server_config.queryable_fields = {"queryable_str_field", "queryable_int_field"};
     // some of these tests make additive schema changes which is only allowed in dev mode
-    constexpr bool dev_mode = true;
-    FLXSyncTestHarness harness("flx_client_reset",
-                               {schema, {"queryable_str_field", "queryable_int_field"}, {}, dev_mode});
+    server_config.dev_mode_enabled = true;
+    server_config.add_client_reset_function = true;
+
+    FLXSyncTestHarness harness("flx_client_reset", std::move(server_config));
 
     auto add_object = [](SharedRealm realm, std::string str_field, int64_t int_field,
                          ObjectId oid = ObjectId::gen()) {
@@ -404,8 +408,7 @@ TEST_CASE("flx: client reset", "[sync][flx][app][client reset]") {
                                                                                bool) {
         ++after_reset_count;
     };
-
-    SECTION("Recover: offline writes and subscriptions") {
+    SECTION("Recover: offline writes and subscriptions (multiple subscriptions)") {
         config_local.sync_config->client_resync_mode = ClientResyncMode::Recover;
         auto&& [reset_future, reset_handler] = make_client_reset_handler();
         config_local.sync_config->notify_after_client_reset = reset_handler;
@@ -445,6 +448,47 @@ TEST_CASE("flx: client reset", "[sync][flx][app][client reset]") {
             ->run();
     }
 
+    SECTION("Recover: offline writes and subscriptions (single subscription)") {
+        config_local.sync_config->client_resync_mode = ClientResyncMode::Recover;
+        auto&& [reset_future, reset_handler] = make_client_reset_handler();
+        config_local.sync_config->notify_after_client_reset = reset_handler;
+        auto test_reset = reset_utils::make_baas_flx_client_reset(config_local, config_remote, harness.session());
+        test_reset
+            ->make_local_changes([&](SharedRealm local_realm) {
+                // add_subscription_for_new_object(local_realm, str_field_value, local_added_int);
+                add_object(local_realm, str_field_value, local_added_int);
+            })
+            ->make_remote_changes([&](SharedRealm remote_realm) {
+                add_subscription_for_new_object(remote_realm, str_field_value, remote_added_int);
+                sync::SubscriptionSet::State actual =
+                    remote_realm->get_latest_subscription_set()
+                        .get_state_change_notification(sync::SubscriptionSet::State::Complete)
+                        .get();
+                REQUIRE(actual == sync::SubscriptionSet::State::Complete);
+            })
+            ->on_post_reset([&, client_reset_future = std::move(reset_future)](SharedRealm local_realm) {
+                ClientResyncMode mode = client_reset_future.get();
+                REQUIRE(mode == ClientResyncMode::Recover);
+                auto subs = local_realm->get_latest_subscription_set();
+                subs.get_state_change_notification(sync::SubscriptionSet::State::Complete).get();
+                // make sure that the subscription for "foo" survived the reset
+                size_t count_of_foo = count_queries_with_str(subs, util::format("\"%1\"", str_field_value));
+                REQUIRE(subs.state() == sync::SubscriptionSet::State::Complete);
+                REQUIRE(count_of_foo == 1);
+                local_realm->refresh();
+                auto table = local_realm->read_group().get_table("class_TopLevel");
+                auto str_col = table->get_column_key("queryable_str_field");
+                auto int_col = table->get_column_key("queryable_int_field");
+                auto tv = table->where().equal(str_col, StringData(str_field_value)).find_all();
+                tv.sort(int_col);
+                // the object we created while offline was recovered, and the remote object was downloaded
+                REQUIRE(tv.size() == 2);
+                CHECK(tv.get_object(0).get<Int>(int_col) == local_added_int);
+                CHECK(tv.get_object(1).get<Int>(int_col) == remote_added_int);
+            })
+            ->run();
+    }
+#if 0
     auto validate_integrity_of_arrays = [](TableRef table) -> size_t {
         auto sum_col = table->get_column_key("sum_of_list_field");
         auto array_col = table->get_column_key("list_of_ints_field");
@@ -766,6 +810,7 @@ TEST_CASE("flx: client reset", "[sync][flx][app][client reset]") {
             })
             ->run();
     }
+#endif
 }
 
 TEST_CASE("flx: creating an object on a class with no subscription throws", "[sync][flx][app]") {
@@ -847,7 +892,7 @@ TEST_CASE("flx: uploading an object that is out-of-view results in compensating 
         role.name = "compensating_write_perms";
         role.read = true;
         role.write = {{"queryable_str_field", {{"$in", nlohmann::json::array({"foo", "bar"})}}}};
-        FLXSyncTestHarness::ServerSchema server_schema{schema, {"queryable_str_field"}, {role}};
+        FLXSyncTestHarness::FLXServerConfig server_schema{schema, {"queryable_str_field"}, {role}};
         harness.emplace("flx_bad_query", server_schema);
     }
 
@@ -1261,7 +1306,7 @@ TEST_CASE("flx: interrupted bootstrap restarts/recovers on reconnect", "[sync][f
 }
 
 TEST_CASE("flx: dev mode uploads schema before query change", "[sync][flx][app]") {
-    FLXSyncTestHarness::ServerSchema server_schema;
+    FLXSyncTestHarness::FLXServerConfig server_schema;
     auto default_schema = FLXSyncTestHarness::default_server_schema();
     server_schema.queryable_fields = default_schema.queryable_fields;
     server_schema.dev_mode_enabled = true;
@@ -1995,7 +2040,7 @@ TEST_CASE("flx: bootstrap batching prevents orphan documents", "[sync][flx][app]
 
 TEST_CASE("flx: asymmetric sync", "[sync][flx][app]") {
     static auto server_schema = [] {
-        FLXSyncTestHarness::ServerSchema server_schema;
+        FLXSyncTestHarness::FLXServerConfig server_schema;
         server_schema.queryable_fields = {"queryable_str_field"};
         server_schema.schema = {
             {"Asymmetric",
@@ -2644,7 +2689,7 @@ TEST_CASE("flx: compensating write errors get re-sent across sessions", "[sync][
     role.read = true;
     role.write =
         nlohmann::json{{"queryable_str_field", nlohmann::json{{"$in", nlohmann::json::array({"foo", "bar"})}}}};
-    FLXSyncTestHarness::ServerSchema server_schema{
+    FLXSyncTestHarness::FLXServerConfig server_schema{
         g_simple_embedded_obj_schema, {"queryable_str_field", "queryable_int_field"}, {role}};
     FLXSyncTestHarness::Config harness_config("flx_bad_query", server_schema);
     harness_config.reconnect_mode = ReconnectMode::testing;
@@ -2791,7 +2836,7 @@ TEST_CASE("flx: compensating write errors get re-sent across sessions", "[sync][
 
 TEST_CASE("RCORE-1350 repro", "[flx][sync][app]") {
     auto server_schema = FLXSyncTestHarness::default_server_schema();
-    server_schema.enable_client_reset_function = true;
+    server_schema.add_client_reset_function = true;
     FLXSyncTestHarness harness("nikola_repro", std::move(server_schema));
 
     auto test_config = harness.make_test_file();
@@ -2799,24 +2844,8 @@ TEST_CASE("RCORE-1350 repro", "[flx][sync][app]") {
     auto always_synced_id = ObjectId::gen();
     auto maybe_synced_id = ObjectId::gen();
 
-    auto before_reset_pf = util::make_promise_future<void>();
-
     test_config.sync_config->client_resync_mode = ClientResyncMode::Recover;
-    test_config.sync_config->notify_before_client_reset =
-        [always_synced_id, maybe_synced_id,
-         wrapped_promise =
-             util::CopyablePromiseHolder(std::move(before_reset_pf.promise))](SharedRealm before_realm) mutable {
-            auto promise = wrapped_promise.get_promise();
-            auto table = before_realm->read_group().get_table("class_TopLevel");
-            if (auto obj_key = table->find_primary_key(always_synced_id); !obj_key) {
-                promise.set_error({ErrorCodes::RuntimeError, "could not find always synced id"});
-            }
-            if (auto obj_key = table->find_primary_key(maybe_synced_id); !obj_key) {
-                promise.set_error({ErrorCodes::RuntimeError, "could not find maybe synced id"});
-            }
 
-            promise.emplace_value();
-        };
 
     auto realm = Realm::get_shared_realm(test_config);
 
@@ -2860,8 +2889,6 @@ TEST_CASE("RCORE-1350 repro", "[flx][sync][app]") {
     REQUIRE(static_cast<std::string>(client_reset_triggered_result["status"]) == "success");
 
     realm->sync_session()->revive_if_needed();
-
-    before_reset_pf.future.get();
 
     wait_for_advance(*realm);
     auto table = realm->read_group().get_table("class_TopLevel");

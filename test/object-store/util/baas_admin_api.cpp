@@ -721,6 +721,32 @@ AdminAPIEndpoint AdminAPISession::apps() const
     return AdminAPIEndpoint(util::format("%1/api/admin/v3.0/groups/%2/apps", m_base_url, m_group_id), m_access_token);
 }
 
+const AppCreateConfig::FunctionDef& make_client_reset_function()
+{
+    constexpr static std::string_view client_reset_fn_body(R"(
+        exports = async function(userId, appId = '') {
+            const mongodb = context.services.get('BackingDB');
+            console.log('user.id: ' + context.user.id);
+            try {
+              let dbName = '__realm_sync';
+              if (appId !== '')
+              {
+                dbName = [dbName, '_', appId].join('');
+              }
+              const deletionResult = await mongodb.db(dbName).collection('clientfiles').deleteMany({ ownerId: userId });
+              console.log('Deleted documents: ' + deletionResult.deletedCount);
+              return { status: deletionResult.deletedCount > 0 ? 'success' : 'failure' };
+            } catch(err) {
+              throw 'Deletion failed: ' + err;
+            }
+        };
+    )");
+    static const AppCreateConfig::FunctionDef ret = {"triggerClientResetOnServer", std::string{client_reset_fn_body},
+                                                     false, true};
+
+    return ret;
+}
+
 AppCreateConfig default_app_config(const std::string& base_url)
 {
     ObjectId id = ObjectId::gen();

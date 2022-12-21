@@ -28,15 +28,15 @@ namespace realm::app {
 
 class FLXSyncTestHarness {
 public:
-    struct ServerSchema {
+    struct FLXServerConfig {
         Schema schema;
         std::vector<std::string> queryable_fields;
         std::vector<AppCreateConfig::FLXSyncRole> default_roles;
-        bool enable_client_reset_function = false;
         bool dev_mode_enabled = false;
+        bool add_client_reset_function = false;
     };
 
-    static ServerSchema default_server_schema()
+    static FLXServerConfig default_server_schema()
     {
         Schema schema{
             {"TopLevel",
@@ -46,65 +46,46 @@ public:
               {"non_queryable_field", PropertyType::String | PropertyType::Nullable}}},
         };
 
-        return ServerSchema{std::move(schema), {"queryable_str_field", "queryable_int_field"}};
+        return FLXServerConfig{std::move(schema), {"queryable_str_field", "queryable_int_field"}};
     }
 
     static AppSession make_app_from_server_schema(const std::string& test_name,
-                                                  const FLXSyncTestHarness::ServerSchema& server_schema)
+                                                  const FLXSyncTestHarness::FLXServerConfig& server_config)
     {
-        auto server_app_config = minimal_app_config(get_base_url(), test_name, server_schema.schema);
-        server_app_config.dev_mode_enabled = server_schema.dev_mode_enabled;
+        auto server_app_config = minimal_app_config(get_base_url(), test_name, server_config.schema);
+        server_app_config.dev_mode_enabled = server_config.dev_mode_enabled;
         AppCreateConfig::FLXSyncConfig flx_config;
-        flx_config.queryable_fields = server_schema.queryable_fields;
-        flx_config.default_roles = server_schema.default_roles;
-        if (server_schema.enable_client_reset_function) {
-            constexpr static std::string_view client_reset_fn_body(R"(
-                exports = async function(userId, appId = '') {
-                    const mongodb = context.services.get('BackingDB');
-                    console.log('user.id: ' + context.user.id);
-                    try {
-                      let dbName = '__realm_sync';
-                      if (appId !== '')
-                      {
-                        dbName = [dbName, '_', appId].join('');
-                      }
-                      const deletionResult = await mongodb.db(dbName).collection('clientfiles').deleteMany({ ownerId: userId });
-                      console.log('Deleted documents: ' + deletionResult.deletedCount);
-                      return { status: deletionResult.deletedCount > 0 ? 'success' : 'failure' };
-                    } catch(err) {
-                      throw 'Deletion failed: ' + err;
-                    }
-                };
-            )");
-
-            server_app_config.functions.push_back(
-                {"triggerClientResetOnServer", std::string{client_reset_fn_body}, false, true});
-        }
+        flx_config.queryable_fields = server_config.queryable_fields;
+        flx_config.default_roles = server_config.default_roles;
 
         server_app_config.flx_sync_config = std::move(flx_config);
+
+        if (server_config.add_client_reset_function) {
+            server_app_config.functions.push_back(make_client_reset_function());
+        }
         return create_app(server_app_config);
     }
 
     struct Config {
-        Config(std::string test_name, ServerSchema server_schema)
+        Config(std::string test_name, FLXServerConfig server_schema)
             : test_name(std::move(test_name))
-            , server_schema(std::move(server_schema))
+            , server_config(std::move(server_schema))
         {
         }
 
         std::string test_name;
-        ServerSchema server_schema;
+        FLXServerConfig server_config;
         std::shared_ptr<GenericNetworkTransport> transport = instance_of<SynchronousTestTransport>;
         ReconnectMode reconnect_mode = ReconnectMode::testing;
     };
 
     explicit FLXSyncTestHarness(Config&& config)
-        : m_test_session(make_app_from_server_schema(config.test_name, config.server_schema), config.transport, true,
+        : m_test_session(make_app_from_server_schema(config.test_name, config.server_config), config.transport, true,
                          config.reconnect_mode)
-        , m_schema(std::move(config.server_schema.schema))
+        , m_schema(std::move(config.server_config.schema))
     {
     }
-    FLXSyncTestHarness(const std::string& test_name, ServerSchema server_schema = default_server_schema(),
+    FLXSyncTestHarness(const std::string& test_name, FLXServerConfig server_schema = default_server_schema(),
                        std::shared_ptr<GenericNetworkTransport> transport = instance_of<SynchronousTestTransport>)
         : m_test_session(make_app_from_server_schema(test_name, server_schema), std::move(transport))
         , m_schema(std::move(server_schema.schema))

@@ -549,6 +549,7 @@ LocalVersionIDs perform_client_reset_diff(DBRef db_local, DBRef db_remote, sync:
     REALM_ASSERT(history_local);
     VersionID old_version_local = wt_local->get_version_of_current_transaction();
     sync::version_type current_version_local = old_version_local.version;
+    logger.debug("captured current_version_local as %1", current_version_local);
     wt_local->get_history()->ensure_updated(current_version_local);
     SaltedFileIdent orig_file_ident;
     {
@@ -603,7 +604,6 @@ LocalVersionIDs perform_client_reset_diff(DBRef db_local, DBRef db_remote, sync:
         // the way to the final state, but since separate commits are necessary, this is
         // unavoidable.
         wt_local = db_local->start_write();
-//        current_version_local = wt_local->get_version_of_current_transaction().version;
         RecoverLocalChangesetsHandler handler{*wt_local, *frozen_pre_local_state, logger};
         handler.process_changesets(local_changes, std::move(pending_subscriptions)); // throws on error
         // The new file ident is set as part of the final commit. This is to ensure that if
@@ -613,7 +613,10 @@ LocalVersionIDs perform_client_reset_diff(DBRef db_local, DBRef db_remote, sync:
         // partially recovered, but interrupted may continue sync the next time it is
         // opened with only partially recovered state while having lost the history of any
         // offline modifications.
-        history_local->set_client_file_ident_in_wt(current_version_local, client_file_ident);
+        logger.debug("resetting client file ident as version %1 actual current version %2", current_version_local,
+                     wt_local->get_version_of_current_transaction().version);
+        history_local->set_client_file_ident_in_wt(wt_local->get_version_of_current_transaction().version,
+                                                   client_file_ident);
         wt_local->commit_and_continue_as_read();
     }
     else {
