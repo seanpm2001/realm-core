@@ -25,6 +25,7 @@
 #include <map>
 #include <set>
 #include <atomic>
+#include <unistd.h>
 
 #ifdef REALM_DEBUG
 #include <iostream>
@@ -1325,7 +1326,8 @@ void SlabAlloc::refresh_pages_for_versions(std::vector<VersionedTopRef> read_loc
 
     auto load_array = [&do_refresh, &read_locks](Array& array, ref_type ref, const VersionedTopRef& read_version) {
         // the begin version is known to have up to date pages since it is the current version
-        const bool first_version = (read_version.version == read_locks.begin()->version);
+        // const bool first_version = (read_version.version == read_locks.begin()->version);
+        const bool first_version = false;
         if (!first_version) {
             do_refresh({{ref, ref + NodeHeader::header_size}});
         }
@@ -1357,7 +1359,7 @@ void SlabAlloc::refresh_pages_for_versions(std::vector<VersionedTopRef> read_loc
             cur_freelist_versions(*this);
         load_array(top_array, read_lock.top_ref, read_lock);
         static_assert(Group::s_free_pos_ndx < Group::s_free_size_ndx, "use the lowest index");
-        if (top_array.size() < Group::s_version_ndx || top_array.size() <= Group::s_free_pos_ndx) {
+        if (top_array.size() <= Group::s_version_ndx || top_array.size() <= Group::s_free_pos_ndx) {
             // a file on streaming format may not contain versioning info or a freelist
             continue;
         }
