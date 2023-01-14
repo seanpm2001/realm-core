@@ -50,28 +50,60 @@ bool equal_without_cr(std::string s1, std::string s2)
     return (s1 == s2);
 }
 
-// FIXME: we should implement these for windows as well.
-int waitpid_checked(int pid, int options, const std::string& info)
+ForkedProcess::ForkedProcess(const std::string& test_name, const std::string& ident)
+    : m_test_name(test_name)
+    , m_identifier(ident)
+{
+}
+
+void ForkedProcess::set_pid(int id)
+{
+#ifndef _WIN32
+    m_pid = id;
+#endif
+}
+
+bool ForkedProcess::is_child()
+{
+#ifndef _WIN32
+    REALM_ASSERT_EX(m_pid >= 0, m_pid);
+    return m_pid == 0;
+#else
+
+#endif
+}
+
+bool ForkedProcess::is_parent()
+{
+#ifndef _WIN32
+    return m_pid != 0;
+#else
+
+#endif
+}
+
+int ForkedProcess::wait_for_child_to_finish()
 {
 #ifndef _WIN32
     int ret = 0;
     int status = 0;
+    int options = 0;
     do {
-        ret = waitpid(pid, &status, options);
+        ret = waitpid(m_pid, &status, options);
     } while (ret == -1 && errno == EINTR);
-    REALM_ASSERT_RELEASE_EX(ret != -1, errno, pid, info);
+    REALM_ASSERT_RELEASE_EX(ret != -1, errno, m_pid, m_test_name, m_identifier);
 
     bool signaled_to_stop = WIFSIGNALED(status);
-    REALM_ASSERT_RELEASE_EX(!signaled_to_stop, WTERMSIG(status), WCOREDUMP(status), pid, info);
+    REALM_ASSERT_RELEASE_EX(!signaled_to_stop, WTERMSIG(status), WCOREDUMP(status), m_pid, m_test_name, m_identifier);
 
     bool stopped = WIFSTOPPED(status);
-    REALM_ASSERT_RELEASE_EX(!stopped, WSTOPSIG(status), pid, info);
+    REALM_ASSERT_RELEASE_EX(!stopped, WSTOPSIG(status), m_pid, m_test_name, m_identifier);
 
     bool exited_normally = WIFEXITED(status);
-    REALM_ASSERT_RELEASE_EX(exited_normally, pid, info);
+    REALM_ASSERT_RELEASE_EX(exited_normally, m_pid, m_test_name, m_identifier);
 
     auto exit_status = WEXITSTATUS(status);
-    REALM_ASSERT_RELEASE_EX(exit_status == 0, exit_status, pid, info);
+    REALM_ASSERT_RELEASE_EX(exit_status == 0, exit_status, m_pid, m_test_name, m_identifier);
     return status;
 #else
     constexpr bool not_supported_on_windows = false;
@@ -80,19 +112,33 @@ int waitpid_checked(int pid, int options, const std::string& info)
 #endif
 }
 
-int fork_and_update_mappings()
+ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::string& process_ident)
 {
+    ForkedProcess process(test_name, process_ident);
 #ifndef _WIN32
     util::prepare_for_fork_in_parent();
     int pid = fork();
+    REALM_ASSERT(pid >= 0);
     if (pid == 0) {
         util::post_fork_in_child();
     }
-    return pid;
+    process.set_pid(pid);
 #else
     constexpr bool not_supported_on_windows = false;
     REALM_ASSERT(not_supported_on_windows);
     return -1;
+#endif
+    return process;
+}
+
+int64_t get_pid()
+{
+#ifdef _WIN32
+    uint64_t pid = GetCurrentProcessId();
+    return pid;
+#else
+    uint64_t pid = getpid();
+    return pid;
 #endif
 }
 

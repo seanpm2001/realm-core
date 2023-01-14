@@ -27,8 +27,23 @@ namespace test_util {
 void replace_all(std::string& str, const std::string& from, const std::string& to);
 bool equal_without_cr(std::string s1, std::string s2);
 
-int waitpid_checked(int pid, int options, const std::string& debug_info);
-int fork_and_update_mappings();
+struct ForkedProcess {
+    ForkedProcess(const std::string& test_name, const std::string& ident);
+    bool is_child();
+    bool is_parent();
+    int wait_for_child_to_finish();
+    void set_pid(int id);
+
+private:
+    std::string m_test_name;
+    std::string m_identifier;
+#ifndef _WIN32
+    int m_pid = -1;
+#endif // _WIN32
+};
+
+ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::string& process_ident);
+int64_t get_pid();
 
 } // namespace test_util
 } // namespace realm
