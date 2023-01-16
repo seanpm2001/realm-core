@@ -19,6 +19,10 @@
 #ifndef REALM_TEST_UTIL_MISC_HPP
 #define REALM_TEST_UTIL_MISC_HPP
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <string>
 
 namespace realm {
@@ -29,15 +33,23 @@ bool equal_without_cr(std::string s1, std::string s2);
 
 struct ForkedProcess {
     ForkedProcess(const std::string& test_name, const std::string& ident);
+    ~ForkedProcess();
     bool is_child();
     bool is_parent();
     int wait_for_child_to_finish();
+
+ #ifdef _WIN32
+    void set_pid(PROCESS_INFORMATION pi);
+ #else
     void set_pid(int id);
+#endif
 
 private:
     std::string m_test_name;
     std::string m_identifier;
-#ifndef _WIN32
+#ifdef _WIN32
+    PROCESS_INFORMATION m_process;
+#else
     int m_pid = -1;
 #endif // _WIN32
 };
