@@ -760,7 +760,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_CreateManyTables, testi
     SHARED_GROUP_TEST_PATH(path);
     SHARED_GROUP_TEST_PATH(path2);
 
-    {
+    if (SpawnedProcess::is_parent()) {
         std::unique_ptr<Replication> hist_w(realm::make_in_realm_history());
         DBRef sg_w = DB::create(*hist_w, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -772,8 +772,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_CreateManyTables, testi
     DBRef sg = DB::create(*hist, path, DBOptions(crypt_key()));
     TransactionRef rt = sg->start_read();
 
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "make_many_tables");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "make_many_tables");
+    if (process->is_child()) {
         size_t free_space, used_space;
         {
             std::unique_ptr<Replication> hist_w(realm::make_in_realm_history());
@@ -799,7 +799,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_CreateManyTables, testi
         exit(0);
     }
     else {
-        process.wait_for_child_to_finish();
+        process->wait_for_child_to_finish();
     }
     size_t reported_used_space = 0;
     {
@@ -903,7 +903,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_InsertTable, testing_su
 {
     SHARED_GROUP_TEST_PATH(path);
 
-    {
+    if (test_util::SpawnedProcess::is_parent()) {
         std::unique_ptr<Replication> hist_w(realm::make_in_realm_history());
         DBRef sg_w = DB::create(*hist_w, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -925,8 +925,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_InsertTable, testing_su
     ConstTableRef table1 = rt->get_table("table1");
     ConstTableRef table2 = rt->get_table("table2");
 
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "add_table");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "add_table");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist_w(realm::make_in_realm_history());
         DBRef sg_w = DB::create(*hist_w, path, DBOptions(crypt_key()));
 
@@ -941,7 +941,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_InsertTable, testing_su
         exit(0);
     }
     else {
-        process.wait_for_child_to_finish();
+        process->wait_for_child_to_finish();
     }
 
     rt->advance_read();
@@ -1039,7 +1039,7 @@ TEST(LangBindHelper_AdvanceReadTransact_EnumeratedStrings)
 NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_supports_fork)
 {
     SHARED_GROUP_TEST_PATH(path);
-    {
+    if (test_util::SpawnedProcess::is_parent()) {
         std::unique_ptr<Replication> hist_r = make_in_realm_history();
         DBRef sg = DB::create(*hist_r, path, DBOptions(crypt_key()));
 
@@ -1048,8 +1048,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         CHECK_EQUAL(0, rt->size());
     }
     // Create 5 columns, and make 3 of them indexed
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "init");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "init");
+    if (process->is_child()) {
         std::vector<ObjKey> keys;
         std::unique_ptr<Replication> hist = make_in_realm_history();
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
@@ -1068,8 +1068,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         exit(0);
     }
 
-    if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_r = make_in_realm_history();
         DBRef sg = DB::create(*hist_r, path, DBOptions(crypt_key()));
@@ -1087,8 +1087,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
     }
 
     // Remove the previous search indexes and add 2 new ones
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "change_indexes");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "change_indexes");
+    if (process->is_child()) {
         std::vector<ObjKey> keys;
         std::unique_ptr<Replication> hist = make_in_realm_history();
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
@@ -1104,8 +1104,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         exit(0);
     }
 
-    if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_r = make_in_realm_history();
         DBRef sg = DB::create(*hist_r, path, DBOptions(crypt_key()));
@@ -1123,8 +1123,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
     }
 
     // Add some searchable contents
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "add_content");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "add_content");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist = make_in_realm_history();
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1139,8 +1139,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         wt.commit();
         exit(0);
     }
-    if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_r = make_in_realm_history();
         DBRef sg = DB::create(*hist_r, path, DBOptions(crypt_key()));
@@ -1161,8 +1161,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         CHECK_EQUAL(ObjKey(13), table->find_first_int(table->get_column_key("i3"), 508));
     }
     // Move the indexed columns by removal
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "move_and_remove");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "move_and_remove");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist = make_in_realm_history();
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1172,8 +1172,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_SearchIndex, testing_su
         wt.commit();
         exit(0);
     }
-    if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_r = make_in_realm_history();
         DBRef sg = DB::create(*hist_r, path, DBOptions(crypt_key()));
@@ -1489,7 +1489,7 @@ TEST(LangBindHelper_AdvanceReadTransact_LinkToNeighbour)
 NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns, testing_supports_fork)
 {
     SHARED_GROUP_TEST_PATH(path);
-    {
+    if (test_util::SpawnedProcess::is_parent()) {
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
 
@@ -1497,8 +1497,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         TransactionRef rt = sg->start_read();
         CHECK_EQUAL(0, rt->size());
     }
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "initial_write");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "initial_write");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist(make_in_realm_history());
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1515,8 +1515,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
@@ -1540,8 +1540,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
     }
     // Remove table with columns, but no link columns, and table is not a link
     // target.
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "remove_alpha");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "remove_alpha");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist(make_in_realm_history());
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1549,8 +1549,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
@@ -1573,8 +1573,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         CHECK(epsilon);
     }
     // Remove table with link column, and table is not a link target.
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "remove_beta");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "remove_beta");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist(make_in_realm_history());
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1582,8 +1582,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
@@ -1607,8 +1607,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
     }
     // Remove table with self-link column, and table is not a target of link
     // columns of other tables.
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "remove_gamma");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "remove_gamma");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist(make_in_realm_history());
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1616,8 +1616,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
@@ -1641,8 +1641,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
     }
     // Try, but fail to remove table which is a target of link columns of other
     // tables.
-    process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "remove_delta");
-    if (process.is_child()) {
+    process = test_util::spawn_process(test_context.test_details.test_name, "remove_delta");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist(make_in_realm_history());
         DBRef sg_w = DB::create(*hist, path, DBOptions(crypt_key()));
         WriteTransaction wt(sg_w);
@@ -1650,8 +1650,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_RemoveTableWithColumns,
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         std::unique_ptr<Replication> hist_parent(make_in_realm_history());
         DBRef sg = DB::create(*hist_parent, path, DBOptions(crypt_key()));
@@ -1894,7 +1894,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_TableClear, testing_sup
     std::unique_ptr<Replication> hist(make_in_realm_history());
     DBRef sg = DB::create(*hist, path, DBOptions(crypt_key()));
     ColKey col;
-    {
+    if (SpawnedProcess::is_parent()) {
         WriteTransaction wt(sg);
         TableRef table = wt.add_table("table");
         col = table->add_column(type_Int, "col");
@@ -1908,8 +1908,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_TableClear, testing_sup
     auto obj = *table->begin();
     CHECK(obj.is_valid());
 
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "external_clear");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "external_clear");
+    if (process->is_child()) {
         std::unique_ptr<Replication> hist_w(make_in_realm_history());
         DBRef sg_w = DB::create(*hist_w, path, DBOptions(crypt_key()));
 
@@ -1918,8 +1918,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_AdvanceReadTransact_TableClear, testing_sup
         wt.commit();
         exit(0);
     }
-    else if (process.is_parent()) {
-        process.wait_for_child_to_finish();
+    else if (process->is_parent()) {
+        process->wait_for_child_to_finish();
 
         reader->advance_read();
 
@@ -3269,6 +3269,8 @@ struct EncryptedPageValidator {
 #if !REALM_ENCRYPTION_VERIFICATION
         std::cout << "EncryptionPageValidator running without verification turned on\n";
 #endif
+        if (!SpawnedProcess::is_parent())
+            return;
         std::string validate_path = path + ".validate";
         if (util::File::exists(validate_path)) {
             util::File::remove(validate_path);
@@ -3376,14 +3378,13 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
     const int write_process_count = 7;
     const int read_process_count = 3;
 
-    std::vector<ForkedProcess> readers;
-    std::vector<ForkedProcess> writers;
+    std::vector<std::unique_ptr<SpawnedProcess>> readers;
+    std::vector<std::unique_ptr<SpawnedProcess>> writers;
     SHARED_GROUP_TEST_PATH(path);
     auto key = crypt_key(true);
-    auto process = test_util::fork_and_update_mappings(test_context.test_details.test_name, "populate");
-    if (process.is_child()) {
+    auto process = test_util::spawn_process(test_context.test_details.test_name, "populate");
+    if (process->is_child()) {
         std::signal(SIGSEGV, signal_handler);
-        std::signal(SIGTRAP, signal_handler);
         std::signal(SIGABRT, signal_handler);
         try {
             std::unique_ptr<Replication> hist(make_in_realm_history());
@@ -3407,7 +3408,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
         exit(0);
     }
     else {
-        process.wait_for_child_to_finish();
+        process->wait_for_child_to_finish();
     }
 
     EncryptedPageValidator validator(path);
@@ -3415,8 +3416,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
     // intialization complete. Start writers:
     for (int i = 0; i < write_process_count; ++i) {
         writers.push_back(
-            test_util::fork_and_update_mappings(test_context.test_details.test_name, util::format("writer[%1]", i)));
-        if (writers.back().is_child()) {
+            test_util::spawn_process(test_context.test_details.test_name, util::format("writer[%1]", i)));
+        if (writers.back()->is_child()) {
             {
                 util::format(std::cout, "Writer[%1](%2) starting.\n", test_util::get_pid(), i);
                 std::unique_ptr<Replication> hist(make_in_realm_history());
@@ -3431,8 +3432,8 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
     // then start readers:
     for (int i = 0; i < read_process_count; ++i) {
         readers.push_back(
-            test_util::fork_and_update_mappings(test_context.test_details.test_name, util::format("reader[%1]", i)));
-        if (readers[i].is_child()) {
+            test_util::spawn_process(test_context.test_details.test_name, util::format("reader[%1]", i)));
+        if (readers[i]->is_child()) {
             {
                 util::format(std::cout, "Reader[%1](%2) starting.\n", test_util::get_pid(), i);
                 std::unique_ptr<Replication> hist(make_in_realm_history());
@@ -3444,10 +3445,10 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
         }
     }
 
-    if (process.is_parent()) {
+    if (process->is_parent()) {
         // Wait for all writer threads to complete
         for (int i = 0; i < write_process_count; ++i) {
-            writers[i].wait_for_child_to_finish();
+            writers[i]->wait_for_child_to_finish();
         }
 
         // Allow readers time to catch up
@@ -3466,7 +3467,7 @@ NONCONCURRENT_TEST_IF(LangBindHelper_ImplicitTransactions_InterProcess, testing_
 
         // Wait for all reader threads to complete
         for (int i = 0; i < read_process_count; ++i) {
-            readers[i].wait_for_child_to_finish();
+            readers[i]->wait_for_child_to_finish();
         }
     }
 }

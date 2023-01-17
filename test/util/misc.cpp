@@ -52,7 +52,7 @@ bool equal_without_cr(std::string s1, std::string s2)
     return (s1 == s2);
 }
 
-ForkedProcess::ForkedProcess(const std::string& test_name, const std::string& ident)
+SpawnedProcess::SpawnedProcess(const std::string& test_name, const std::string& ident)
     : m_test_name(test_name)
     , m_identifier(ident)
 {
@@ -61,7 +61,7 @@ ForkedProcess::ForkedProcess(const std::string& test_name, const std::string& id
 #endif
 }
 
-ForkedProcess::~ForkedProcess()
+SpawnedProcess::~SpawnedProcess()
 {
 #ifdef _WIN32
     if (m_process.hProcess != 0) {
@@ -73,38 +73,40 @@ ForkedProcess::~ForkedProcess()
 }
 
 #ifdef _WIN32
-void ForkedProcess::set_pid(PROCESS_INFORMATION pi) {
+void SpawnedProcess::set_pid(PROCESS_INFORMATION pi) {
     m_process = pi;
 }
 #else
-void ForkedProcess::set_pid(int id)
+void SpawnedProcess::set_pid(int id)
 {
     m_pid = id;
 }
 #endif
 
-bool ForkedProcess::is_child()
+bool SpawnedProcess::is_child()
 {
 #ifndef _WIN32
     REALM_ASSERT_EX(m_pid >= 0, m_pid);
     return m_pid == 0;
 #else
     const char* str = getenv("REALM_CHILD_IDENT");
-    return str == m_identifier;
+    std::cout << "\nis_child() has env: ";
+    if (str) {
+        std::cout << str << std::endl;
+    }
+    else {
+        std::cout << "no env ident detected" << std::endl;
+    }
+    return str && str == m_identifier;
 #endif
 }
 
-bool ForkedProcess::is_parent()
+bool SpawnedProcess::is_parent()
 {
-#ifndef _WIN32
-    return m_pid != 0;
-#else
-    const char* str = getenv("REALM_CHILD_IDENT");
-    return str == nullptr;
-#endif
+    return !(getenv("REALM_CHILD_IDENT") || getenv("REALM_FORKED"));
 }
 
-int ForkedProcess::wait_for_child_to_finish()
+int SpawnedProcess::wait_for_child_to_finish()
 {
 #ifndef _WIN32
     int ret = 0;
@@ -144,9 +146,9 @@ int ForkedProcess::wait_for_child_to_finish()
 #endif
 }
 
-ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::string& process_ident)
+std::unique_ptr<SpawnedProcess> spawn_process(const std::string& test_name, const std::string& process_ident)
 {
-    ForkedProcess process(test_name, process_ident);
+    std::unique_ptr<SpawnedProcess> process = std::make_unique<SpawnedProcess>(test_name, process_ident);
 #ifndef _WIN32
     util::prepare_for_fork_in_parent();
     int pid = fork();
@@ -154,36 +156,26 @@ ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::
     if (pid == 0) {
         util::post_fork_in_child();
     }
-    process.set_pid(pid);
+    process->set_pid(pid);
 #else
     const char* str = getenv("REALM_CHILD_IDENT");
     if (!str) {
         STARTUPINFO si;
         PROCESS_INFORMATION pi;
         TCHAR program_name[MAX_PATH];
-        LPTSTR szCmdline = TEXT("\"C:\\Users\\Administrator\\Documents\\realm-core\\vs\\src\\realm\\exec\\Debug\\realm-browser-10-dbg.exe\"");
-
-        wchar_t const_path[MAX_PATH] =
-            L"C:\\Users\\Administrator\\Documents\\realm-core\\vs\\src\\realm\\exec\\Debug\\realm-browser-10-dbg.exe\0";
         ZeroMemory(&si, sizeof(si));
         si.cb = sizeof(si);
         ZeroMemory(&pi, sizeof(pi));
         auto success = GetModuleFileName(NULL, program_name, MAX_PATH);
-        //std::cout << util::format("program name: %1", std::string(&program_name, success)) << std::endl;
-        // memcpy(&program_name, const_path, strlen(const_path));
-        //std::cout << "but using: " << const_path << std::endl;
         REALM_ASSERT_EX(success, util::format("GetModuleFileName failed (%1)", GetLastError()), test_name,
                             process_ident);
         std::string env = "REALM_FORKED=1";
         env.append("\0", 1);
-        
         env.append(util::format("UNITTEST_FILTER=%1", test_name));
         env.append("\0", 1);
         env.append(util::format("REALM_CHILD_IDENT=%1", process_ident));
         env.append("\0\0", 2);
-        LPTSTR environment = TEXT("REALM_FORKED=1\0\0UNITTEST_FILTER=Blah\0\0REALM_CHILD_IDENT=identity_str\0\0\0\0");
-        // we only support fork() like behaviour from the parent process for now
-        if (!CreateProcess(const_path,  // No module name (use command line)
+        if (!CreateProcess(program_name,  // Application name
                            NULL,     // Command line
                            NULL,    // Process handle not inheritable
                            NULL,    // Thread handle not inheritable
@@ -196,8 +188,7 @@ ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::
         ) {
             REALM_ASSERT_EX(false, util::format("CreateProcess failed (%1).\n", GetLastError()), test_name, process_ident);
         }
-       // process.set_pid(pi);
-        REALM_ASSERT(false);
+        process->set_pid(pi);
     }
 #endif
     return process;

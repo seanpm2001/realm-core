@@ -23,6 +23,7 @@
 #include <windows.h>
 #endif
 
+#include <memory>
 #include <string>
 
 namespace realm {
@@ -31,11 +32,11 @@ namespace test_util {
 void replace_all(std::string& str, const std::string& from, const std::string& to);
 bool equal_without_cr(std::string s1, std::string s2);
 
-struct ForkedProcess {
-    ForkedProcess(const std::string& test_name, const std::string& ident);
-    ~ForkedProcess();
+struct SpawnedProcess {
+    SpawnedProcess(const std::string& test_name, const std::string& ident);
+    ~SpawnedProcess();
     bool is_child();
-    bool is_parent();
+    static bool is_parent();
     int wait_for_child_to_finish();
 
  #ifdef _WIN32
@@ -54,7 +55,7 @@ private:
 #endif // _WIN32
 };
 
-ForkedProcess fork_and_update_mappings(const std::string& test_name, const std::string& process_ident);
+std::unique_ptr<SpawnedProcess> spawn_process(const std::string& test_name, const std::string& process_ident);
 int64_t get_pid();
 
 } // namespace test_util
