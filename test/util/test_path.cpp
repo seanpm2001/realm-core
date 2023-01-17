@@ -19,6 +19,7 @@
 #include "test_path.hpp"
 
 #include "misc.hpp"
+#include "spawned_process.hpp"
 
 #include <realm/util/file.hpp>
 

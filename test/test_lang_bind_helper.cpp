@@ -32,18 +32,10 @@
 #include <realm/util/to_string.hpp>
 #include <realm/replication.hpp>
 
-// Need fork() and waitpid() for Shared_RobustAgainstDeathDuringWrite
-#ifndef _WIN32
-#include <unistd.h>
-#include <sys/wait.h>
-#define ENABLE_ROBUST_AGAINST_DEATH_DURING_WRITE
-#else
-#include <windows.h>
-#endif
-
 #include "test.hpp"
 #include "test_table_helper.hpp"
 #include "util/misc.hpp"
+#include "util/spawned_process.hpp"
 
 using namespace realm;
 using namespace realm::util;

@@ -19,11 +19,6 @@
 #ifndef REALM_TEST_UTIL_MISC_HPP
 #define REALM_TEST_UTIL_MISC_HPP
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
-#include <memory>
 #include <string>
 
 namespace realm {
@@ -31,32 +26,6 @@ namespace test_util {
 
 void replace_all(std::string& str, const std::string& from, const std::string& to);
 bool equal_without_cr(std::string s1, std::string s2);
-
-struct SpawnedProcess {
-    SpawnedProcess(const std::string& test_name, const std::string& ident);
-    ~SpawnedProcess();
-    bool is_child();
-    static bool is_parent();
-    int wait_for_child_to_finish();
-
- #ifdef _WIN32
-    void set_pid(PROCESS_INFORMATION pi);
- #else
-    void set_pid(int id);
-#endif
-
-private:
-    std::string m_test_name;
-    std::string m_identifier;
-#ifdef _WIN32
-    PROCESS_INFORMATION m_process;
-#else
-    int m_pid = -1;
-#endif // _WIN32
-};
-
-std::unique_ptr<SpawnedProcess> spawn_process(const std::string& test_name, const std::string& process_ident);
-int64_t get_pid();
 
 } // namespace test_util
 } // namespace realm
