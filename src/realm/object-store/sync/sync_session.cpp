@@ -577,20 +577,22 @@ void SyncSession::handle_fresh_realm_downloaded(DBRef db, Status status,
             return;
         }
         lock.unlock();
+        std::string err_msg = util::format("A fatal error occured during client reset: '%1'", status.reason());
         if (auto local_subs_store = get_flx_subscription_store()) {
             // In DiscardLocal mode, only the active subscription set is preserved
             // This means that we have to remove all other subscriptions including later
             // versioned ones.
             auto mut_sub = local_subs_store->get_active().make_mutable_copy();
             // Mark the new subscription set Complete because there must always exist an active subscription set.
-            mut_sub.update_state(sync::SubscriptionSet::State::Complete);
+
+            mut_sub.update_state(sync::SubscriptionSet::State::Error, err_msg);
             local_subs_store->supercede_all_except(mut_sub);
             std::move(mut_sub).commit();
         }
         const bool try_again = false;
         sync::SessionErrorInfo synthetic(
             make_error_code(sync::Client::Error::auto_client_reset_failure),
-            util::format("A fatal error occured during client reset: '%1'", status.reason()), try_again);
+            err_msg, try_again);
         handle_error(synthetic);
         return;
     }
