@@ -18,6 +18,7 @@
 
 ### Internals
 * Prebuilt libraries for Apple platforms are now built with Xcode 14.
+* The minimum CMake version has changed from 3.15 to 3.22.1. ([#6537](https://github.com/realm/realm-core/issues/6537))
 
 ----------------------------------------------
 
