@@ -966,7 +966,7 @@ buildvariants:
   run_on: ubuntu2004-large
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -998,7 +998,7 @@ buildvariants:
   run_on: ubuntu2004-large
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1013,7 +1013,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1031,7 +1031,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1050,7 +1050,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     bloaty_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/bloaty-v1.1-39-gefc1c61-ubuntu2004-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     cmake_build_type: RelWithDebInfo
@@ -1074,7 +1074,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1093,7 +1093,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1110,7 +1110,7 @@ buildvariants:
   run_on: ubuntu2004-small
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1127,7 +1127,7 @@ buildvariants:
   run_on: ubuntu2004-large
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1148,7 +1148,7 @@ buildvariants:
   expansions:
     c_compiler: /opt/mongodbtoolchain/v3/bin/gcc
     cxx_compiler: /opt/mongodbtoolchain/v3/bin/g++
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     curl: "/opt/mongodbtoolchain/v3/bin/curl"
@@ -1164,7 +1164,7 @@ buildvariants:
   display_name: "Ubuntu 2204 Valgrind"
   run_on: ubuntu2204-large
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     enable_valgrind: On
@@ -1176,7 +1176,7 @@ buildvariants:
   display_name: "Ubuntu 20.04 ARM64"
   run_on: ubuntu2004-arm64-small
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-aarch64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-aarch64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     python3: "/opt/mongodbtoolchain/v3/bin/python3"
     use_system_openssl: On
@@ -1193,7 +1193,7 @@ buildvariants:
   display_name: "MacOS 11.0 x86_64"
   run_on: macos-1100
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1209,7 +1209,7 @@ buildvariants:
   display_name: "MacOS 11.0 x86_64 (Encryption enabled)"
   run_on: macos-1100
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1225,7 +1225,7 @@ buildvariants:
   display_name: "MacOS 11.0 x86_64 (Release build)"
   run_on: macos-1100
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1245,7 +1245,7 @@ buildvariants:
   display_name: "MacOS 11 arm64"
   run_on: macos-1100-arm64
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1263,7 +1263,7 @@ buildvariants:
   display_name: "MacOS 11 arm64 (Release build)"
   run_on: macos-1100-arm64
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1282,7 +1282,7 @@ buildvariants:
   display_name: "MacOS 11 arm64 (Code Coverage)"
   run_on: macos-1100-arm64
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-macos-universal.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-macos-universal.tar.gz"
     cmake_bindir: "./cmake_binaries/CMake.app/Contents/bin"
     cmake_toolchain_file: "./tools/cmake/xcode.toolchain.cmake"
     cmake_generator: Xcode
@@ -1301,7 +1301,7 @@ buildvariants:
   run_on: ubuntu2004-large
   expansions:
     clang_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/clang%2Bllvm-11.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz"
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-linux-x86_64.tar.gz"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-linux-x86_64.tar.gz"
     cmake_bindir: "./cmake_binaries/bin"
     fetch_missing_dependencies: On
     run_tests_against_baas: On
@@ -1318,8 +1318,8 @@ buildvariants:
   display_name: "Windows x86_64 (VS 2019)"
   run_on: windows-vsCurrent-large
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-windows-x86_64.zip"
-    cmake_bindir: "./cmake-3.20.3-windows-x86_64/bin"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-windows-x86_64.zip"
+    cmake_bindir: "./cmake-3.26.3-windows-x86_64/bin"
     cmake_generator: "Visual Studio 16 2019"
     extra_flags: "-A x64"
     max_jobs: $(($(grep -c proc /proc/cpuinfo) / 2))
@@ -1333,8 +1333,8 @@ buildvariants:
   display_name: "Windows x86_64 (Encryption enabled)"
   run_on: windows-vsCurrent-large
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-windows-x86_64.zip"
-    cmake_bindir: "./cmake-3.20.3-windows-x86_64/bin"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-windows-x86_64.zip"
+    cmake_bindir: "./cmake-3.26.3-windows-x86_64/bin"
     cmake_generator: "Visual Studio 16 2019"
     extra_flags: "-A x64"
     max_jobs: $(($(grep -c proc /proc/cpuinfo) / 2))
@@ -1348,8 +1348,8 @@ buildvariants:
   display_name: "Windows x86_64 (VS 2019 Release build)"
   run_on: windows-vsCurrent-large
   expansions:
-    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.20.3-windows-x86_64.zip"
-    cmake_bindir: "./cmake-3.20.3-windows-x86_64/bin"
+    cmake_url: "https://s3.amazonaws.com/static.realm.io/evergreen-assets/cmake-3.26.3-windows-x86_64.zip"
+    cmake_bindir: "./cmake-3.26.3-windows-x86_64/bin"
     cmake_generator: "Visual Studio 16 2019"
     extra_flags: "-A x64"
     cmake_build_type: "Release"
