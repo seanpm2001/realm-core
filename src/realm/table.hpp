@@ -33,6 +33,7 @@
 #include <realm/table_ref.hpp>
 #include <realm/spec.hpp>
 #include <realm/query.hpp>
+#include <realm/radix_tree.hpp>
 #include <realm/cluster_tree.hpp>
 #include <realm/keys.hpp>
 #include <realm/global_key.hpp>
@@ -438,6 +439,7 @@ public:
     // Will return pointer to search index accessor. Will return nullptr if no index
     SearchIndex* get_search_index(ColKey col) const noexcept;
     StringIndex* get_string_index(ColKey col) const noexcept;
+    IntegerIndex* get_int_index(ColKey col) const noexcept;
 
     template <class T>
     ObjKey find_first(ColKey col_key, T value) const;

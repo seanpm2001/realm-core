@@ -51,6 +51,7 @@ set(REALM_SOURCES
     query_engine.cpp
     query_expression.cpp
     query_value.cpp
+    radix_tree.cpp
     replication.cpp
     set.cpp
     spec.cpp
@@ -177,6 +178,7 @@ set(REALM_INSTALL_HEADERS
     query_expression.hpp
     query_state.hpp
     query_value.hpp
+    radix_tree.hpp
     realm_nmmintrin.h
     replication.hpp
     search_index.hpp
