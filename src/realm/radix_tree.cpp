@@ -95,7 +95,7 @@ std::unique_ptr<IndexNode> IndexNode::do_add_direct(ObjKey value, size_t ndx, In
         row_list.add(existing < value.value ? value.value : existing);
         set(ndx, row_list.get_ref());
         update_parent();
-        verify();
+        verify<ChunkWidth>();
         return nullptr;
     }
     ref_type ref = rot.get_as_ref();
@@ -112,7 +112,7 @@ std::unique_ptr<IndexNode> IndexNode::do_add_direct(ObjKey value, size_t ndx, In
             row_list.add(value.value);
             set(ndx, row_list.get_ref());
         }
-        verify();
+        verify<ChunkWidth>();
         return nullptr;
     }
     char* header = m_alloc.translate(ref);
@@ -124,7 +124,7 @@ std::unique_ptr<IndexNode> IndexNode::do_add_direct(ObjKey value, size_t ndx, In
         auto pos = sub.find_first(value.value);
         REALM_ASSERT_EX(pos == realm::npos || sub.get(pos) != value.value, pos, sub.size(), value.value);
         sub.insert(pos, value.value);
-        verify();
+        verify<ChunkWidth>();
         return nullptr;
     }
     // ref to sub index node
@@ -132,8 +132,8 @@ std::unique_ptr<IndexNode> IndexNode::do_add_direct(ObjKey value, size_t ndx, In
     sub_node->init_from_ref(ref);
     sub_node->set_parent(this, ndx);
     key.get_next();
-    sub_node->verify();
-    verify();
+    sub_node->verify<ChunkWidth>();
+    verify<ChunkWidth>();
     return sub_node;
 }
 
@@ -151,7 +151,7 @@ void IndexNode::insert(ObjKey value, IndexKey<ChunkWidth> key)
     auto cur_node = std::make_unique<IndexNode>(m_alloc);
     cur_node->init_from_ref(this->get_ref());
     cur_node->set_parent(this->get_parent(), this->get_ndx_in_parent());
-    cur_node->verify();
+    cur_node->verify<ChunkWidth>();
     while (true) {
         InsertResult result = cur_node->insert_to_population(key);
         if (!result.did_exist) {
@@ -169,14 +169,14 @@ void IndexNode::insert(ObjKey value, IndexKey<ChunkWidth> key)
                     row_list.add(value.value);
                     cur_node->set(result.real_index, row_list.get_ref());
                 }
-                cur_node->verify();
+                cur_node->verify<ChunkWidth>();
                 break;
             }
             else {
                 auto new_node = create(m_alloc);
                 cur_node->Array::insert(result.real_index, new_node->get_ref());
                 new_node->set_parent(cur_node.get(), result.real_index);
-                cur_node->verify();
+                cur_node->verify<ChunkWidth>();
                 key.get_next();
                 accessor_chain.push_back(std::move(cur_node));
                 cur_node = std::move(new_node);
@@ -185,13 +185,13 @@ void IndexNode::insert(ObjKey value, IndexKey<ChunkWidth> key)
         else {
             // entry already exists
             auto next = cur_node->do_add_direct(value, result.real_index, key);
-            cur_node->verify();
+            cur_node->verify<ChunkWidth>();
             if (!next) {
                 break;
             }
             accessor_chain.push_back(std::move(cur_node));
             cur_node = std::move(next);
-            cur_node->verify();
+            cur_node->verify<ChunkWidth>();
         }
     }
 }
@@ -212,7 +212,7 @@ bool IndexNode::do_remove(size_t raw_index)
     size_t bit_n = raw_index - c_num_metadata_entries;
     size_t index_translated;
     size_t bits_in_population_0 = size_t(fast_popcount64(population_0));
-    if (bits_in_population_0 >= bit_n) {
+    if (bits_in_population_0 > bit_n) {
         index_translated = index_of_nth_bit(population_0, bit_n);
         REALM_ASSERT_EX(population_0 & (uint64_t(1) << index_translated), population_0, index_translated);
         population_0 = population_0 & ~(uint64_t(1) << index_translated);
@@ -303,6 +303,14 @@ IndexIterator IndexNode::find_first(IndexKey<ChunkWidth> key) const
     }
 
     while (true) {
+        auto cur_prefix = cur_node->get_prefix<ChunkWidth>();
+        for (auto prefix_chunk : cur_prefix) {
+            auto key_chunk = key.get();
+            if (!key_chunk || *key_chunk != size_t(prefix_chunk.to_ullong())) {
+                return {}; // not found
+            }
+            key.next();
+        }
         std::optional<size_t> ndx = cur_node->index_of(key);
         if (!ndx) {
             return {}; // no index entry
@@ -423,17 +431,223 @@ void IndexNode::set_population_1(uint64_t pop)
     set(c_ndx_of_population_1, RefOrTagged::make_tagged(pop));
 }
 
-template <size_t ChunkWidth>
-IndexNode::InsertResult IndexNode::insert_to_population(const IndexKey<ChunkWidth>& key)
+bool IndexNode::has_prefix() const
 {
-    InsertResult ret = {true, realm::npos};
+    return get(c_ndx_of_prefix_payload) != 0;
+}
+
+template <size_t ChunkWidth>
+typename IndexKey<ChunkWidth>::Prefix IndexKey<ChunkWidth>::advance_chunks(size_t num_chunks)
+{
+    IndexKey<ChunkWidth>::Prefix prefix{};
+    while (!is_last() && prefix.size() < num_chunks) {
+        auto next_chunk = get();
+        REALM_ASSERT(next_chunk);
+        prefix.push_back(std::bitset<ChunkWidth>(*next_chunk));
+        next();
+    }
+    return prefix;
+}
+
+template <size_t ChunkWidth>
+typename IndexKey<ChunkWidth>::Prefix IndexNode::get_prefix() const
+{
+
+    typename IndexKey<ChunkWidth>::Prefix prefix{};
+    RefOrTagged rot_size = get_as_ref_or_tagged(c_ndx_of_prefix_size);
+    size_t num_chunks = 0;
+    if (rot_size.is_ref()) {
+        REALM_ASSERT_3(rot_size.get_as_ref(), ==, 0);
+    }
+    else if (rot_size.is_tagged()) {
+        num_chunks = rot_size.get_as_int();
+    }
+    if (num_chunks == 0) {
+        return prefix;
+    }
+    auto unpack_prefix = [&prefix](int64_t packed_value) {
+        IndexKey<ChunkWidth> compact_prefix(packed_value);
+        for (size_t i = 0; i < IndexKey<ChunkWidth>::c_key_chunks_per_prefix; ++i) {
+            auto chunk = compact_prefix.get();
+            REALM_ASSERT(chunk);
+            prefix.push_back(*chunk);
+            compact_prefix.next();
+        }
+    };
+
+    RefOrTagged rot_payload = get_as_ref_or_tagged(c_ndx_of_prefix_payload);
+    if (rot_payload.is_ref()) {
+        ref_type ref = rot_payload.get_as_ref();
+        if (ref == 0) {
+            REALM_ASSERT_3(prefix.size(), <, IndexKey<ChunkWidth>::c_key_chunks_per_prefix);
+            for (size_t i = 0; i < num_chunks; ++i) {
+                prefix.push_back({});
+            }
+            return prefix;
+        }
+        const IntegerColumn sub(m_alloc, ref); // Throws
+        for (auto it = sub.cbegin(); it != sub.cend(); ++it) {
+            unpack_prefix(*it);
+        }
+    }
+    else {
+        // a single value prefix has been shifted one to the right
+        // to allow it to be tagged without losing the high bit
+        unpack_prefix(rot_payload.get_as_int() << 1);
+    }
+    // there may have been some extra chunks read in the last value
+    if (prefix.size() > num_chunks) {
+        prefix.erase(prefix.begin() + num_chunks, prefix.end());
+    }
+    REALM_ASSERT_3(prefix.size(), ==, num_chunks);
+    return prefix;
+}
+
+template <size_t ChunkWidth>
+void IndexNode::set_prefix(const typename IndexKey<ChunkWidth>::Prefix& prefix)
+{
+    set(c_ndx_of_prefix_size, RefOrTagged::make_tagged(prefix.size()));
+    RefOrTagged rot_payload = get_as_ref_or_tagged(c_ndx_of_prefix_payload);
+    if (rot_payload.is_ref() && rot_payload.get_as_ref() != 0) {
+        IntegerColumn sub(m_alloc, rot_payload.get_as_ref()); // Throws
+        sub.destroy();
+        // TODO: maybe optimize this by looking for a common prefix?
+    }
+    if (!prefix.size()) {
+        return;
+    }
+
+    std::vector<int64_t> packed_prefix;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        const size_t chunk_for_value = i % IndexKey<ChunkWidth>::c_key_chunks_per_prefix;
+        if (chunk_for_value == 0) {
+            packed_prefix.push_back(0);
+        }
+        const size_t lshift = 64 - ((1 + chunk_for_value) * ChunkWidth);
+        packed_prefix.back() = packed_prefix.back() | (uint64_t(prefix[i].to_ullong()) << lshift);
+    }
+
+    if (packed_prefix.size() == 1) {
+        // shift 1 right so it doesn't overflow, we know there is space for this
+        // because the calculation of c_key_chunks_per_prefix accounts for it
+        set(c_ndx_of_prefix_payload, RefOrTagged::make_tagged(uint64_t(packed_prefix[0]) >> 1));
+    }
+    else if (packed_prefix.size() > 1) {
+        IntegerColumn sub(m_alloc);
+        sub.set_parent(this, c_ndx_of_prefix_payload);
+        sub.create();
+        for (uint64_t val : packed_prefix) {
+            sub.add(val);
+        }
+    }
+}
+
+template <size_t ChunkWidth>
+void IndexNode::advance_key_to_existing_prefix(IndexKey<ChunkWidth>& key)
+{
+    if (!key.get()) {
+        return;
+    }
+    size_t prefix_size = 0;
+    RefOrTagged rot_prefix_size = get_as_ref_or_tagged(c_ndx_of_prefix_size);
+    if (rot_prefix_size.is_tagged()) {
+        prefix_size = rot_prefix_size.get_as_int();
+    }
+    else {
+        REALM_ASSERT_3(rot_prefix_size.get_as_ref(), ==, 0);
+        //        if (prefixes.size() == 1) {
+        //            Array::set
+        //        }
+    }
+
+    RefOrTagged rot_prefix_payload = get_as_ref_or_tagged(c_ndx_of_prefix_payload);
+    if (rot_prefix_payload.is_tagged()) {
+        REALM_ASSERT_3(prefix_size, <, IndexKey<ChunkWidth>::c_key_chunks_per_prefix);
+    }
+    else {
+    }
+}
+
+template <size_t ChunkWidth>
+void IndexNode::do_prefix_insert(IndexKey<ChunkWidth>& key)
+{
+    REALM_ASSERT_DEBUG(key.get());
+    if (is_empty()) {
+        auto prefix = key.advance_chunks(); // get full prefix to end
+        set_prefix<ChunkWidth>(prefix);
+        return;
+    }
+    auto existing_prefix = get_prefix<ChunkWidth>();
+    if (existing_prefix.size() == 0) {
+        // not empty and no prefix; no common prefix
+        return;
+    }
+    size_t orig_offset = key.get_offset();
+    // FIXME: advance one by one
+    auto possible_shared_prefix = key.advance_chunks(existing_prefix.size());
+
+    // find common prefix
+    size_t ndx_of_last_shared_chunk = 0;
+    while (ndx_of_last_shared_chunk < possible_shared_prefix.size() &&
+           ndx_of_last_shared_chunk < existing_prefix.size()) {
+        if (existing_prefix[ndx_of_last_shared_chunk] != possible_shared_prefix[ndx_of_last_shared_chunk]) {
+            break;
+        }
+        ++ndx_of_last_shared_chunk;
+    }
+    if (ndx_of_last_shared_chunk != existing_prefix.size()) {
+        // split the prefix
+        typename IndexKey<ChunkWidth>::Prefix shared_prefix;
+        typename IndexKey<ChunkWidth>::Prefix prefix_to_move;
+        shared_prefix.insert(shared_prefix.begin(), possible_shared_prefix.begin(),
+                             possible_shared_prefix.begin() + ndx_of_last_shared_chunk);
+        prefix_to_move.insert(prefix_to_move.begin(), existing_prefix.begin() + ndx_of_last_shared_chunk,
+                              existing_prefix.end());
+
+        const Array::Type type = Array::type_HasRefs;
+        std::unique_ptr<IndexNode> split_node = std::make_unique<IndexNode>(m_alloc); // Throws
+        // Mark that this is part of index
+        // (as opposed to columns under leaves)
+        constexpr bool set_context_flag = true;
+        split_node->Array::create(type, set_context_flag); // Throws
+        Array::move(*split_node, 0);
+        for (size_t i = 0; i < c_num_metadata_entries; ++i) {
+            Array::add(0);
+        }
+        REALM_ASSERT(prefix_to_move.size() != 0);
+        Array::set(c_ndx_of_null, split_node->get(c_ndx_of_null));
+        split_node->set(c_ndx_of_null, 0);
+        uint64_t population_split = prefix_to_move[0].to_ullong();
+        prefix_to_move.erase(prefix_to_move.begin());
+        split_node->set_prefix<ChunkWidth>(prefix_to_move);
+        set_prefix<ChunkWidth>(shared_prefix);
+        do_insert_to_population(population_split);
+        add(split_node->get_ref());
+        key.set_offset(orig_offset + ndx_of_last_shared_chunk);
+    }
+    // otherwise the entire prefix is shared
+}
+
+template <size_t ChunkWidth>
+IndexNode::InsertResult IndexNode::insert_to_population(IndexKey<ChunkWidth>& key)
+{
     auto optional_value = key.get();
     if (!optional_value) {
+        InsertResult ret;
         ret.did_exist = Array::get(c_ndx_of_null) == 0;
         ret.real_index = c_ndx_of_null;
         return ret;
     }
-    size_t value = *optional_value;
+
+    do_prefix_insert(key);
+    optional_value = key.get(); // do_prefix_insert may have advanced the key
+    REALM_ASSERT(optional_value);
+    return do_insert_to_population(*optional_value);
+}
+
+IndexNode::InsertResult IndexNode::do_insert_to_population(uint64_t value)
+{
+    InsertResult ret = {true, realm::npos};
     // can only store 63 entries per population slot because population is a tagged value
     REALM_ASSERT_EX(value <= (63 + 63), value);
     if (value < 63) {
@@ -525,6 +739,7 @@ bool IndexNode::is_empty() const
     return get_population_0() == 0 && get_population_1() == 0 && get(c_ndx_of_null) == 0;
 }
 
+template <size_t ChunkWidth>
 void IndexNode::verify() const
 {
     size_t actual_size = size();
@@ -534,10 +749,10 @@ void IndexNode::verify() const
     size_t num_entries = size_t(fast_popcount64(population_0) + fast_popcount64(population_1));
     REALM_ASSERT_EX(num_entries + c_num_metadata_entries == actual_size, num_entries, actual_size,
                     c_num_metadata_entries);
-    int64_t prefix = get(c_ndx_of_prefix) >> 1;
-    REALM_ASSERT_EX(prefix == 0, prefix);
+    //    auto prefix = get_prefix<ChunkWidth>();
 }
 
+template <size_t ChunkWidth>
 void IndexNode::print() const
 {
     struct NodeInfo {
@@ -556,9 +771,26 @@ void IndexNode::print() const
         uint64_t pop_0 = cur_node->get_population_0();
         uint64_t pop_1 = cur_node->get_population_1();
         int64_t nulls = cur_node->get(c_ndx_of_null);
-        int64_t prefix = cur_node->get(c_ndx_of_prefix);
-        util::format(std::cout, "IndexNode[%1] depth %2, size %3, population [%4, %5], has nulls %6, prefix %7: {",
-                     cur_node->get_ref(), cur_depth, array_size, pop_0, pop_1, nulls != 0, prefix);
+        auto prefix = cur_node->get_prefix<ChunkWidth>();
+        std::string prefix_str = "";
+        if (prefix.size()) {
+            prefix_str = util::format("%1 chunk prefix: '", prefix.size());
+            for (auto val : prefix) {
+                prefix_str += util::format("%1, ", val.to_ullong());
+            }
+            prefix_str.replace(prefix_str.size() - 2, 2, "'");
+        }
+        std::string null_str = "";
+        if (nulls) {
+            if (nulls & 1) {
+                null_str = util::format("null %1, ", nulls >> 1);
+            }
+            else {
+                null_str = "list of nulls, ";
+            }
+        }
+        util::format(std::cout, "IndexNode[%1] depth %2, size %3, population [%4, %5], %6%7: {", cur_node->get_ref(),
+                     cur_depth, array_size, pop_0, pop_1, null_str, prefix_str);
         for (size_t i = c_num_metadata_entries; i < array_size; ++i) {
             if (i > c_num_metadata_entries) {
                 std::cout << ", ";
@@ -709,16 +941,17 @@ template <size_t ChunkWidth>
 void RadixTree<ChunkWidth>::verify() const
 {
     m_array->update_from_parent();
-    m_array->verify();
+    m_array->verify<ChunkWidth>();
 }
 
+#ifdef REALM_DEBUG
 template <size_t ChunkWidth>
 void RadixTree<ChunkWidth>::print() const
 {
     m_array->update_from_parent();
-    m_array->print();
+    m_array->print<ChunkWidth>();
 }
-
+#endif // REALM_DEBUG
 
 template class RadixTree<6>;
 

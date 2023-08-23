@@ -65,8 +65,6 @@ public:
     }
     std::optional<size_t> get() const
     {
-        static_assert(ChunkWidth < 64, "chunks must be less than 64 bits");
-        constexpr uint64_t int_mask = (~uint64_t(0) >> (64 - ChunkWidth)) << (64 - ChunkWidth);
         if (m_mixed.is_null()) {
             return {};
         }
@@ -74,7 +72,7 @@ public:
         if (m_mixed.is_type(type_Int)) {
             size_t rshift = (1 + m_offset) * ChunkWidth;
             rshift = rshift < 64 ? 64 - rshift : 0;
-            ret = (uint64_t(m_mixed.get<Int>()) & (int_mask >> (m_offset * ChunkWidth))) >> rshift;
+            ret = (uint64_t(m_mixed.get<Int>()) & (c_int_mask >> (m_offset * ChunkWidth))) >> rshift;
             REALM_ASSERT_3(ret, <, (1 << ChunkWidth));
             return ret;
         }
@@ -88,6 +86,18 @@ public:
     {
         ++m_offset;
         return get();
+    }
+    void next()
+    {
+        ++m_offset;
+    }
+    void set_offset(size_t offset)
+    {
+        m_offset = offset;
+    }
+    size_t get_offset() const
+    {
+        return m_offset;
     }
     bool is_last() const
     {
@@ -103,6 +113,13 @@ public:
     {
         return m_mixed;
     }
+    using Prefix = std::vector<std::bitset<ChunkWidth>>;
+    Prefix advance_chunks(size_t num_chunks = realm::npos);
+
+    static_assert(ChunkWidth < 63, "chunks must be less than 63 bits");
+    // we need 1 bit to make for a tagged value
+    constexpr static size_t c_key_chunks_per_prefix = (64 - 1) / ChunkWidth;
+    constexpr static uint64_t c_int_mask = (~uint64_t(0) >> (64 - ChunkWidth)) << (64 - ChunkWidth);
 
 private:
     size_t m_offset = 0;
@@ -133,7 +150,9 @@ public:
     bool has_duplicate_values() const;
     bool is_empty() const;
 
+    template <size_t ChunkWidth>
     void print() const;
+    template <size_t ChunkWidth>
     void verify() const;
 
 private:
@@ -141,21 +160,33 @@ private:
     std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, IndexKey<ChunkWidth>& key);
     constexpr static size_t c_ndx_of_population_0 = 0;
     constexpr static size_t c_ndx_of_population_1 = 1;
-    constexpr static size_t c_ndx_of_prefix = 2;
-    constexpr static size_t c_ndx_of_null = 3; // adjacent to data so that iteration works
-    constexpr static size_t c_num_metadata_entries = 4;
+    constexpr static size_t c_ndx_of_prefix_size = 2;
+    constexpr static size_t c_ndx_of_prefix_payload = 3;
+    constexpr static size_t c_ndx_of_null = 4; // adjacent to data so that iteration works
+    constexpr static size_t c_num_metadata_entries = 5;
 
     uint64_t get_population_0() const;
     uint64_t get_population_1() const;
     void set_population_0(uint64_t pop);
     void set_population_1(uint64_t pop);
+    bool has_prefix() const;
+    template <size_t ChunkWidth>
+    typename IndexKey<ChunkWidth>::Prefix get_prefix() const;
+    template <size_t ChunkWidth>
+    void set_prefix(const typename IndexKey<ChunkWidth>::Prefix& prefix);
+    template <size_t ChunkWidth>
+    void advance_key_to_existing_prefix(IndexKey<ChunkWidth>& key);
+    template <size_t ChunkWidth>
+    void do_prefix_insert(IndexKey<ChunkWidth>& key);
 
     struct InsertResult {
         bool did_exist;
         size_t real_index;
     };
     template <size_t ChunkWidth>
-    InsertResult insert_to_population(const IndexKey<ChunkWidth>& key);
+    InsertResult insert_to_population(IndexKey<ChunkWidth>& key);
+    InsertResult do_insert_to_population(uint64_t population_value);
+
     template <size_t ChunkWidth>
     std::optional<size_t> index_of(const IndexKey<ChunkWidth>& key) const;
     bool do_remove(size_t index_raw);

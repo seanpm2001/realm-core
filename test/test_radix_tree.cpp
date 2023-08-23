@@ -38,35 +38,33 @@ using unit_test::TestContext;
 
 TEST(RadixTree_BuildIndex)
 {
-    std::vector<std::string_view> strings = {
-        "John", "Brian", "Samantha", "Tom", "Johnathan", "Johnny", "Sam",
-    };
+    std::vector<Mixed> values = {0, 1, 2, 3, 4, 4, 5, 5, 5, Mixed{}, -1};
     Table table;
-    ColKey col_pk = table.add_column(type_Int, "pk");
+    ColKey col_pk = table.add_column(type_ObjectId, "pk");
     table.set_primary_key_column(col_pk);
-    ColKey col_key = table.add_column(type_String, "foo");
+    const bool nullable = true;
+    ColKey col_key = table.add_column(type_Int, "values", nullable);
 
-    int64_t pk = 0;
-    for (auto str : strings) {
-        table.create_object_with_primary_key(pk++).set(col_key, StringData(str));
+    for (auto val : values) {
+        table.create_object_with_primary_key(ObjectId::gen()).set_any(col_key, val);
     }
-    table.create_object_with_primary_key(pk++).set(col_key, StringData(strings[0])); // duplicate
 
     // Create a new index on column
     table.add_search_index(col_key);
-    StringIndex* ndx = table.get_string_index(col_key);
-    IntegerIndex* int_index = table.get_int_index(col_pk);
+    IntegerIndex* int_index = table.get_int_index(col_key);
     CHECK(int_index);
+    int_index->print();
 
-    pk = 0;
-    for (auto str : strings) {
-        const ObjKey key = ndx->find_first(StringData(str));
+    for (auto val : values) {
+        const ObjKey key = int_index->find_first(val);
         CHECK(key);
-        CHECK_EQUAL(table.get_primary_key(key), pk++);
     }
+    CHECK_EQUAL(int_index->count(4), 2);
+    CHECK_EQUAL(int_index->count(5), 3);
     while (table.size()) {
         table.remove_object(table.begin());
     }
+    int_index->print();
 }
 
 #endif // TEST_RADIX_TREE

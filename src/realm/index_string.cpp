@@ -1120,8 +1120,8 @@ bool StringIndex::leaf_insert(ObjKey obj_key, key_type key, size_t offset, Strin
         // When key is outside current range, we can just add it
         keys.add(key);
         if (!m_target_column.is_fulltext() || is_at_string_end) {
-            int64_t shifted = int64_t((uint64_t(obj_key.value) << 1) + 1); // shift to indicate literal
-            m_array->add(shifted);
+            // shift to indicate literal
+            m_array->add(RefOrTagged::make_tagged(obj_key.value));
         }
         else {
             // create subindex for rest of string
@@ -1141,8 +1141,8 @@ bool StringIndex::leaf_insert(ObjKey obj_key, key_type key, size_t offset, Strin
 
         keys.insert(ins_pos, key);
         if (!m_target_column.is_fulltext() || is_at_string_end) {
-            int64_t shifted = int64_t((uint64_t(obj_key.value) << 1) + 1); // shift to indicate literal
-            m_array->insert(ins_pos_refs, shifted);
+            // shift to indicate literal
+            m_array->insert(ins_pos_refs, RefOrTagged::make_tagged(obj_key.value));
         }
         else {
             // create subindex for rest of string
