@@ -791,6 +791,10 @@ TEST(StringIndex_Count_Int)
         }
 
         CHECK_EQUAL(real, count);
+        if (real != count) {
+            std::cout << util::format("count of %1 expected %2 but found %3\n", i, real, count);
+            ndx.print();
+        }
     }
 }
 
