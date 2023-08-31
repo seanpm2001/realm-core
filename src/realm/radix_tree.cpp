@@ -450,6 +450,26 @@ typename IndexKey<ChunkWidth>::Prefix IndexKey<ChunkWidth>::advance_chunks(size_
 }
 
 template <size_t ChunkWidth>
+typename IndexKey<ChunkWidth>::Prefix
+IndexKey<ChunkWidth>::advance_to_common_prefix(const IndexKey<ChunkWidth>::Prefix& other)
+{
+    size_t orig_offset = m_offset;
+    IndexKey<ChunkWidth>::Prefix shared_prefix;
+    while (!is_last() && shared_prefix.size() < other.size()) {
+        auto next_chunk = get();
+        REALM_ASSERT(next_chunk);
+        auto chunk_bits = std::bitset<ChunkWidth>(*next_chunk);
+        if (other[shared_prefix.size()] != chunk_bits) {
+            break;
+        }
+        shared_prefix.push_back(chunk_bits);
+        next();
+    }
+    m_offset = orig_offset + shared_prefix.size();
+    return shared_prefix;
+}
+
+template <size_t ChunkWidth>
 typename IndexKey<ChunkWidth>::Prefix IndexNode::get_prefix() const
 {
 
@@ -543,32 +563,6 @@ void IndexNode::set_prefix(const typename IndexKey<ChunkWidth>::Prefix& prefix)
 }
 
 template <size_t ChunkWidth>
-void IndexNode::advance_key_to_existing_prefix(IndexKey<ChunkWidth>& key)
-{
-    if (!key.get()) {
-        return;
-    }
-    size_t prefix_size = 0;
-    RefOrTagged rot_prefix_size = get_as_ref_or_tagged(c_ndx_of_prefix_size);
-    if (rot_prefix_size.is_tagged()) {
-        prefix_size = rot_prefix_size.get_as_int();
-    }
-    else {
-        REALM_ASSERT_3(rot_prefix_size.get_as_ref(), ==, 0);
-        //        if (prefixes.size() == 1) {
-        //            Array::set
-        //        }
-    }
-
-    RefOrTagged rot_prefix_payload = get_as_ref_or_tagged(c_ndx_of_prefix_payload);
-    if (rot_prefix_payload.is_tagged()) {
-        REALM_ASSERT_3(prefix_size, <, IndexKey<ChunkWidth>::c_key_chunks_per_prefix);
-    }
-    else {
-    }
-}
-
-template <size_t ChunkWidth>
 void IndexNode::do_prefix_insert(IndexKey<ChunkWidth>& key)
 {
     REALM_ASSERT_DEBUG(key.get());
@@ -582,26 +576,11 @@ void IndexNode::do_prefix_insert(IndexKey<ChunkWidth>& key)
         // not empty and no prefix; no common prefix
         return;
     }
-    size_t orig_offset = key.get_offset();
-    // FIXME: advance one by one
-    auto possible_shared_prefix = key.advance_chunks(existing_prefix.size());
-
-    // find common prefix
-    size_t ndx_of_last_shared_chunk = 0;
-    while (ndx_of_last_shared_chunk < possible_shared_prefix.size() &&
-           ndx_of_last_shared_chunk < existing_prefix.size()) {
-        if (existing_prefix[ndx_of_last_shared_chunk] != possible_shared_prefix[ndx_of_last_shared_chunk]) {
-            break;
-        }
-        ++ndx_of_last_shared_chunk;
-    }
-    if (ndx_of_last_shared_chunk != existing_prefix.size()) {
+    auto shared_prefix = key.advance_to_common_prefix(existing_prefix);
+    if (shared_prefix.size() != existing_prefix.size()) {
         // split the prefix
-        typename IndexKey<ChunkWidth>::Prefix shared_prefix;
         typename IndexKey<ChunkWidth>::Prefix prefix_to_move;
-        shared_prefix.insert(shared_prefix.begin(), possible_shared_prefix.begin(),
-                             possible_shared_prefix.begin() + ndx_of_last_shared_chunk);
-        prefix_to_move.insert(prefix_to_move.begin(), existing_prefix.begin() + ndx_of_last_shared_chunk,
+        prefix_to_move.insert(prefix_to_move.begin(), existing_prefix.begin() + shared_prefix.size(),
                               existing_prefix.end());
 
         const Array::Type type = Array::type_HasRefs;
@@ -623,7 +602,6 @@ void IndexNode::do_prefix_insert(IndexKey<ChunkWidth>& key)
         set_prefix<ChunkWidth>(shared_prefix);
         do_insert_to_population(population_split);
         add(split_node->get_ref());
-        key.set_offset(orig_offset + ndx_of_last_shared_chunk);
     }
     // otherwise the entire prefix is shared
 }

@@ -36,6 +36,22 @@ using namespace realm::util;
 using namespace realm::test_util;
 using unit_test::TestContext;
 
+TEST(IndexKey_6)
+{
+    constexpr size_t ChunkWidth = 6;
+
+    CHECK(!IndexKey<ChunkWidth>(Mixed{}).get());
+
+    size_t max = uint64_t(1) << ChunkWidth;
+    for (size_t i = 0; i < max; ++i) {
+        uint64_t shifted_value = uint64_t(i) << (max - ChunkWidth);
+        IndexKey<ChunkWidth> key{int64_t(shifted_value)};
+        auto val = key.get();
+        CHECK(val);
+        CHECK_EQUAL(i, *val);
+    }
+}
+
 TEST(RadixTree_BuildIndex)
 {
     std::vector<Mixed> values = {0, 1, 2, 3, 4, 4, 5, 5, 5, Mixed{}, -1};
@@ -53,7 +69,6 @@ TEST(RadixTree_BuildIndex)
     table.add_search_index(col_key);
     IntegerIndex* int_index = table.get_int_index(col_key);
     CHECK(int_index);
-    int_index->print();
 
     for (auto val : values) {
         const ObjKey key = int_index->find_first(val);
@@ -64,7 +79,6 @@ TEST(RadixTree_BuildIndex)
     while (table.size()) {
         table.remove_object(table.begin());
     }
-    int_index->print();
 }
 
 #endif // TEST_RADIX_TREE

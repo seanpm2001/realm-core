@@ -91,14 +91,6 @@ public:
     {
         ++m_offset;
     }
-    void set_offset(size_t offset)
-    {
-        m_offset = offset;
-    }
-    size_t get_offset() const
-    {
-        return m_offset;
-    }
     bool is_last() const
     {
         if (m_mixed.is_null()) {
@@ -115,6 +107,7 @@ public:
     }
     using Prefix = std::vector<std::bitset<ChunkWidth>>;
     Prefix advance_chunks(size_t num_chunks = realm::npos);
+    Prefix advance_to_common_prefix(const Prefix& other);
 
     static_assert(ChunkWidth < 63, "chunks must be less than 63 bits");
     // we need 1 bit to make for a tagged value
@@ -156,8 +149,41 @@ public:
     void verify() const;
 
 private:
-    template <size_t ChunkWidth>
-    std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, IndexKey<ChunkWidth>& key);
+    // An IndexNode is a radix tree with the following properties:
+    //
+    // 1) Every element is a RefOrTagged value. This has the nice property that
+    // to destroy a tree, you simply call Array::destroy_deep() and all refs
+    // are recursively deleted. This property is shared with the StringIndex so that
+    // migrations from the StringIndex to a RadixTree can safely call clear() without
+    // having to know what the underlying structure actually is.
+    //
+    // 2) A ref stored in this tree could point to another radix tree node or an IntegerColumn.
+    // The difference is that an IndexNode has the Array::context_flag set in its header.
+    // An IntegerColumn is used to store a list of ObjectKeys that have the same values.
+    // An IntegerColumn is also used to store a single ObjectKey if the actual ObjectKey value
+    // has the high bit set (ie. is a tombstone); this is necessary because we can't lose the top
+    // bit when tagging the value.
+    //
+    // 3) An IndexNode has the capacity to store 2^(ChunkWidth + 1) - 1 elements.
+    // Eg. for a ChunkWidth of 6 it could store 255 values.
+    // But space for all these elements is only allocated as needed.
+    // There is a bit set in the population metadata fields for every
+    // entry present in the node. We get from from entry number to physical
+    // entry index by 1) masking out entries in the bit vector which are above the entry number
+    // and 2) counting the set bits in the result using the popcount instruction. The number of
+    // set bits is the physical index of the entry. This way we don't need to store null elements
+    // for entries which are not used. So we get fast access (no searching) but also a dense array.
+    // Having two population fields in the metadata allows us to support a ChunkWidth of up to log2(2*(64-1)).
+    // We lose a bit in each population field due to having to tag it (see property 1)
+    //
+    // 4) Each IndexNode has the ability to store an arbitrary length prefix. This optimization has the potential
+    // to cut out many interior nodes of the tree if the values are clustered together. The number of chunks of
+    // prefix are stored in the c_ndx_of_prefix_size metadata entry. The value of the prefix is stored in
+    // c_ndx_of_prefix_payload, the int64_t value is packed with as many chunks as possible and if the prefix is
+    // longer than a single (tagged) int64_t can hold, then the payload is a ref to an IntegerColumn which stores
+    // the prefix packed together in a sequence. Note that for integer values a column will never be needed.
+    //
+    //
     constexpr static size_t c_ndx_of_population_0 = 0;
     constexpr static size_t c_ndx_of_population_1 = 1;
     constexpr static size_t c_ndx_of_prefix_size = 2;
@@ -165,6 +191,8 @@ private:
     constexpr static size_t c_ndx_of_null = 4; // adjacent to data so that iteration works
     constexpr static size_t c_num_metadata_entries = 5;
 
+    template <size_t ChunkWidth>
+    std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, IndexKey<ChunkWidth>& key);
     uint64_t get_population_0() const;
     uint64_t get_population_1() const;
     void set_population_0(uint64_t pop);
@@ -174,8 +202,6 @@ private:
     typename IndexKey<ChunkWidth>::Prefix get_prefix() const;
     template <size_t ChunkWidth>
     void set_prefix(const typename IndexKey<ChunkWidth>::Prefix& prefix);
-    template <size_t ChunkWidth>
-    void advance_key_to_existing_prefix(IndexKey<ChunkWidth>& key);
     template <size_t ChunkWidth>
     void do_prefix_insert(IndexKey<ChunkWidth>& key);
 
@@ -249,6 +275,9 @@ inline RadixTree<ChunkWidth>::RadixTree(ref_type ref, ArrayParent* parent, size_
     m_array->set_parent(parent, ndx_in_parent);
 }
 
+// The node width is a tradeoff between number of intermediate nodes and write amplification
+// A chunk width of 6 means 63 keys per node which should be a reasonable size.
+// Modifying this is a file format breaking change that requires integer indexes to be deleted and added again.
 using IntegerIndex = RadixTree<6>;
 
 } // namespace realm
