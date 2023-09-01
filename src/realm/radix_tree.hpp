@@ -110,7 +110,10 @@ public:
     Prefix advance_to_common_prefix(const Prefix& other);
 
     static_assert(ChunkWidth < 63, "chunks must be less than 63 bits");
-    // we need 1 bit to make for a tagged value
+    constexpr static size_t c_max_key_value = 1 << ChunkWidth;
+    // we need 1 bit to allow the value to be tagged
+    // 64 here refers to int64_t capacity and how many prefix chunks
+    // we can cram into that for the compact form of prefix storage
     constexpr static size_t c_key_chunks_per_prefix = (64 - 1) / ChunkWidth;
     constexpr static uint64_t c_int_mask = (~uint64_t(0) >> (64 - ChunkWidth)) << (64 - ChunkWidth);
 

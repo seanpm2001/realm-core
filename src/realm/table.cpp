@@ -866,18 +866,10 @@ void Table::do_add_search_index(ColKey col_key, IndexType type)
     REALM_ASSERT(m_index_accessors[column_ndx] == nullptr);
 
     // Create the index
-    if (col_key.get_type() == col_type_Int) {
-        m_index_accessors[column_ndx] =
-            std::make_unique<IntegerIndex>(ClusterColumn(&m_clusters, col_key, type), get_alloc()); // Throws
-    }
-    else {
-        m_index_accessors[column_ndx] =
-            std::make_unique<StringIndex>(ClusterColumn(&m_clusters, col_key, type), get_alloc()); // Throws
-    }
+    m_index_accessors[column_ndx] = make_index(col_key, ClusterColumn(&m_clusters, col_key, type));
     SearchIndex* index = m_index_accessors[column_ndx].get();
     // Insert ref to index
     index->set_parent(&m_index_refs, column_ndx);
-
     m_index_refs.set(column_ndx, index->get_ref()); // Throws
 
     populate_search_index(col_key);
@@ -2114,6 +2106,24 @@ void Table::refresh_accessor_tree()
     refresh_index_accessors();
 }
 
+std::unique_ptr<SearchIndex> Table::make_index(ColKey col_key, const ClusterColumn& cluster)
+{
+    if (col_key.get_type() == col_type_Int) {
+        return std::make_unique<IntegerIndex>(cluster, get_alloc()); // Throws
+    }
+    return std::make_unique<StringIndex>(cluster, get_alloc()); // Throws
+}
+
+std::unique_ptr<SearchIndex> Table::make_index(ColKey col_key, ref_type ref, Array& parent, size_t col_ndx,
+                                               const ClusterColumn& virtual_col)
+{
+    if (col_key.get_type() == col_type_Int) {
+        return std::make_unique<IntegerIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
+    }
+    return std::make_unique<StringIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
+}
+
+
 void Table::refresh_index_accessors()
 {
     // Refresh search index accessors
@@ -2139,25 +2149,10 @@ void Table::refresh_index_accessors()
             ClusterColumn virtual_col(&m_clusters, col_key, fulltext ? IndexType::Fulltext : IndexType::General);
 
             if (m_index_accessors[col_ndx]) { // still there, refresh:
-                if (col_key.get_type() == col_type_Int &&
-                    dynamic_cast<IntegerIndex*>(m_index_accessors[col_ndx].get())) {
-                    m_index_accessors[col_ndx]->refresh_accessor_tree(virtual_col);
-                    return;
-                }
-                else if (dynamic_cast<StringIndex*>(m_index_accessors[col_ndx].get())) {
-                    m_index_accessors[col_ndx]->refresh_accessor_tree(virtual_col);
-                    return;
-                }
+                m_index_accessors[col_ndx]->refresh_accessor_tree(virtual_col);
             }
             // new index!
-            if (col_key.get_type() == col_type_Int) {
-                m_index_accessors[col_ndx] =
-                    std::make_unique<IntegerIndex>(ref, &m_index_refs, col_ndx, virtual_col, get_alloc());
-            }
-            else {
-                m_index_accessors[col_ndx] =
-                    std::make_unique<StringIndex>(ref, &m_index_refs, col_ndx, virtual_col, get_alloc());
-            }
+            m_index_accessors[col_ndx] = make_index(col_key, ref, m_index_refs, col_ndx, virtual_col);
         }
     }
 }

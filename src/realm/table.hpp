@@ -545,6 +545,11 @@ public:
         return false;
     }
 
+protected:
+    virtual std::unique_ptr<SearchIndex> make_index(ColKey col, const ClusterColumn&);
+    virtual std::unique_ptr<SearchIndex> make_index(ColKey col, ref_type ref, Array& parent, size_t col_ndx,
+                                                    const ClusterColumn&);
+
 private:
     template <class T>
     TableView find_all(ColKey col_key, T value);

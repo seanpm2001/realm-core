@@ -933,4 +933,7 @@ void RadixTree<ChunkWidth>::print() const
 
 template class RadixTree<6>;
 
+// these are only used for tests and should be excluded by the compiler for other build types
+template class RadixTree<7>;
+
 } // namespace realm
