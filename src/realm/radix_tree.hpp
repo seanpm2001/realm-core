@@ -25,6 +25,11 @@
 
 namespace realm {
 
+inline bool value_can_be_tagged_without_overflow(uint64_t val)
+{
+    return !(val & (uint64_t(1) << 63));
+}
+
 class IndexNode;
 
 struct IndexIterator {

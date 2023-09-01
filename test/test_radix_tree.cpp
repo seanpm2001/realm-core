@@ -30,6 +30,23 @@
 #include "util/misc.hpp"
 #include "util/random.hpp"
 
+
+// We are interested in testing various sizes of the tree
+// but we don't want the core shared library to pay the size
+// cost of storing these symbols when none of the SDKs will use
+// them. To get around this using explicit template instantiation,
+// we include the radix_tree_templates.cpp file here which _only_
+// has templated code and instantiate it below.
+#include <realm/radix_tree_templates.cpp>
+namespace realm {
+template class RadixTree<7>;
+template class RadixTree<8>;
+template class RadixTree<9>;
+template class RadixTree<10>;
+template class RadixTree<16>;
+} // namespace realm
+
+
 using namespace realm;
 using namespace util;
 using namespace realm;
@@ -89,10 +106,6 @@ class TableForIndexWidth : public Table {
         return std::make_unique<StringIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
     }
 };
-
-namespace realm {
-template class RadixTree<7>;
-} // namespace realm
 
 ONLY_TYPES(IndexNode, /*ChunkOf<4>, ChunkOf<5>,*/ ChunkOf<6>, ChunkOf<7> /* ChunkOf<8>, ChunkOf<9>, ChunkOf<10>*/)
 {
