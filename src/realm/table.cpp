@@ -351,7 +351,7 @@ bool LinkChain::add(ColKey ck)
 
 // -- Table ---------------------------------------------------------------------------------
 
-Table::Table(Allocator& alloc)
+Table::Table(Allocator& alloc, IndexMaker callback)
     : m_alloc(alloc)
     , m_top(m_alloc)
     , m_spec(m_alloc)
@@ -361,6 +361,7 @@ Table::Table(Allocator& alloc)
     , m_opposite_column(m_alloc)
     , m_repl(&g_dummy_replication)
     , m_own_ref(this, alloc.get_instance_version())
+    , m_index_maker(std::move(callback))
 {
     m_spec.set_parent(&m_top, top_position_for_spec);
     m_index_refs.set_parent(&m_top, top_position_for_search_indexes);
@@ -845,6 +846,22 @@ void Table::clear_indexes()
     }
 }
 
+static std::unique_ptr<SearchIndex> make_index(ColKey col_key, const ClusterColumn& cluster, Allocator& alloc,
+                                               ref_type ref = 0, Array* parent = nullptr,
+                                               size_t col_ndx = realm::npos)
+{
+    if (parent) {
+        if (col_key.get_type() == col_type_Int) {
+            return std::make_unique<IntegerIndex>(ref, parent, col_ndx, cluster, alloc);
+        }
+        return std::make_unique<StringIndex>(ref, parent, col_ndx, cluster, alloc);
+    }
+    if (col_key.get_type() == col_type_Int) {
+        return std::make_unique<IntegerIndex>(cluster, alloc); // Throws
+    }
+    return std::make_unique<StringIndex>(cluster, alloc); // Throws
+}
+
 void Table::do_add_search_index(ColKey col_key, IndexType type)
 {
     size_t column_ndx = col_key.get_index().val;
@@ -866,7 +883,13 @@ void Table::do_add_search_index(ColKey col_key, IndexType type)
     REALM_ASSERT(m_index_accessors[column_ndx] == nullptr);
 
     // Create the index
-    m_index_accessors[column_ndx] = make_index(col_key, ClusterColumn(&m_clusters, col_key, type));
+    if (REALM_UNLIKELY(m_index_maker)) { // this path is for test hooks
+        m_index_accessors[column_ndx] =
+            m_index_maker(col_key, ClusterColumn(&m_clusters, col_key, type), m_alloc, 0, nullptr, realm::npos);
+    }
+    else {
+        m_index_accessors[column_ndx] = make_index(col_key, ClusterColumn(&m_clusters, col_key, type), m_alloc);
+    }
     SearchIndex* index = m_index_accessors[column_ndx].get();
     // Insert ref to index
     index->set_parent(&m_index_refs, column_ndx);
@@ -2106,24 +2129,6 @@ void Table::refresh_accessor_tree()
     refresh_index_accessors();
 }
 
-std::unique_ptr<SearchIndex> Table::make_index(ColKey col_key, const ClusterColumn& cluster)
-{
-    if (col_key.get_type() == col_type_Int) {
-        return std::make_unique<IntegerIndex>(cluster, get_alloc()); // Throws
-    }
-    return std::make_unique<StringIndex>(cluster, get_alloc()); // Throws
-}
-
-std::unique_ptr<SearchIndex> Table::make_index(ColKey col_key, ref_type ref, Array& parent, size_t col_ndx,
-                                               const ClusterColumn& virtual_col)
-{
-    if (col_key.get_type() == col_type_Int) {
-        return std::make_unique<IntegerIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
-    }
-    return std::make_unique<StringIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
-}
-
-
 void Table::refresh_index_accessors()
 {
     // Refresh search index accessors
@@ -2152,7 +2157,13 @@ void Table::refresh_index_accessors()
                 m_index_accessors[col_ndx]->refresh_accessor_tree(virtual_col);
             }
             // new index!
-            m_index_accessors[col_ndx] = make_index(col_key, ref, m_index_refs, col_ndx, virtual_col);
+            if (REALM_UNLIKELY(m_index_maker)) { // this path is for test hooks
+                m_index_accessors[col_ndx] =
+                    m_index_maker(col_key, virtual_col, m_alloc, ref, &m_index_refs, col_ndx);
+            }
+            else {
+                m_index_accessors[col_ndx] = make_index(col_key, virtual_col, m_alloc, ref, &m_index_refs, col_ndx);
+            }
         }
     }
 }

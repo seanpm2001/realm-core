@@ -96,9 +96,12 @@ public:
     enum class Type : uint8_t { TopLevel = 0, Embedded = 0x1, TopLevelAsymmetric = 0x2 };
     constexpr static uint8_t table_type_mask = 0x3;
 
+    using IndexMaker = util::UniqueFunction<std::unique_ptr<SearchIndex>(ColKey, const ClusterColumn&, Allocator&,
+                                                                         ref_type, Array*, size_t)>;
+
     /// Construct a new freestanding top-level table with static
     /// lifetime. For debugging only.
-    Table(Allocator& = Allocator::get_default());
+    Table(Allocator& = Allocator::get_default(), IndexMaker cb = nullptr);
 
     /// Construct a copy of the specified table as a new freestanding
     /// top-level table with static lifetime. For debugging only.
@@ -545,11 +548,6 @@ public:
         return false;
     }
 
-protected:
-    virtual std::unique_ptr<SearchIndex> make_index(ColKey col, const ClusterColumn&);
-    virtual std::unique_ptr<SearchIndex> make_index(ColKey col, ref_type ref, Array& parent, size_t col_ndx,
-                                                    const ClusterColumn&);
-
 private:
     template <class T>
     TableView find_all(ColKey col_key, T value);
@@ -861,6 +859,7 @@ private:
     Type m_table_type = Type::TopLevel;
     uint64_t m_in_file_version_at_transaction_boundary = 0;
     AtomicLifeCycleCookie m_cookie;
+    IndexMaker m_index_maker = nullptr;
 
     static constexpr int top_position_for_spec = 0;
     static constexpr int top_position_for_columns = 1;

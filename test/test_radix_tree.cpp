@@ -87,28 +87,24 @@ TEST_TYPES(IndexKey_Get, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf
     }
 }
 
-template <size_t ChunkSize>
-class TableForIndexWidth : public Table {
-    std::unique_ptr<SearchIndex> make_index(ColKey col_key, const ClusterColumn& cluster) override
-    {
-        if (col_key.get_type() == col_type_Int) {
-            return std::make_unique<RadixTree<ChunkSize>>(cluster, get_alloc()); // Throws
-        }
-        return std::make_unique<StringIndex>(cluster, get_alloc()); // Throws
-    }
-
-    std::unique_ptr<SearchIndex> make_index(ColKey col_key, ref_type ref, Array& parent, size_t col_ndx,
-                                            const ClusterColumn& virtual_col) override
-    {
-        if (col_key.get_type() == col_type_Int) {
-            return std::make_unique<IntegerIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
-        }
-        return std::make_unique<StringIndex>(ref, &parent, col_ndx, virtual_col, get_alloc());
-    }
-};
-
-ONLY_TYPES(IndexNode, /*ChunkOf<4>, ChunkOf<5>,*/ ChunkOf<6>, ChunkOf<7> /* ChunkOf<8>, ChunkOf<9>, ChunkOf<10>*/)
+ONLY_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6> /*, ChunkOf<7>, ChunkOf<8>, ChunkOf<9>, ChunkOf<10>*/)
 {
+    constexpr size_t ChunkWidth = TEST_TYPE::value;
+
+    Table::IndexMaker hook = [](ColKey col_key, const ClusterColumn& cluster, Allocator& alloc, ref_type ref,
+                                Array* parent, size_t col_ndx) -> std::unique_ptr<SearchIndex> {
+        if (parent) {
+            if (col_key.get_type() == col_type_Int) {
+                return std::make_unique<RadixTree<ChunkWidth>>(ref, parent, col_ndx, cluster, alloc);
+            }
+            return std::make_unique<StringIndex>(ref, parent, col_ndx, cluster, alloc);
+        }
+        if (col_key.get_type() == col_type_Int) {
+            return std::make_unique<RadixTree<ChunkWidth>>(cluster, alloc); // Throws
+        }
+        return std::make_unique<StringIndex>(cluster, alloc); // Throws
+    };
+
     int64_t dup_positive = 8;
     int64_t dup_negative = -77;
     std::vector<int64_t> values = {
@@ -140,10 +136,10 @@ ONLY_TYPES(IndexNode, /*ChunkOf<4>, ChunkOf<5>,*/ ChunkOf<6>, ChunkOf<7> /* Chun
         0xEFF000000000000,
     };
     std::vector<ObjKey> keys;
-    constexpr size_t ChunkWidth = TEST_TYPE::value;
 
-    TableForIndexWidth<ChunkWidth> table;
+    Table table(Allocator::get_default(), std::move(hook));
     ColKey col = table.add_column(type_Int, "values");
+    table.add_search_index(col);
     for (size_t i = 0; i < values.size(); ++i) {
         auto obj = table.create_object().set(col, values[i]);
         keys.push_back(obj.get_key());
