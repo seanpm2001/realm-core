@@ -30,6 +30,7 @@ inline bool value_can_be_tagged_without_overflow(uint64_t val)
     return !(val & (uint64_t(1) << 63));
 }
 
+template <size_t ChunkWidth>
 class IndexNode;
 
 struct IndexIterator {
@@ -47,17 +48,12 @@ struct IndexIterator {
     }
 
 private:
-    IndexNode* last_node() const
-    {
-        if (m_accessor_chain.size()) {
-            return m_accessor_chain.back().get();
-        }
-        return nullptr;
-    }
     std::vector<size_t> m_positions;
     std::optional<size_t> m_list_position;
     ObjKey m_key;
-    std::vector<std::unique_ptr<IndexNode>> m_accessor_chain;
+    template <size_t ChunkWidth>
+    friend class RadixTree;
+    template <size_t ChunkWidth>
     friend class IndexNode;
 };
 
@@ -127,7 +123,13 @@ private:
     Mixed m_mixed;
 };
 
+struct InsertResult {
+    bool did_exist;
+    size_t real_index;
+};
+
 /// Each RadixTree node contains an array of this type
+template <size_t ChunkWidth>
 class IndexNode : public Array {
 public:
     IndexNode(Allocator& allocator)
@@ -137,91 +139,80 @@ public:
 
     static std::unique_ptr<IndexNode> create(Allocator& alloc);
 
-    template <size_t ChunkWidth>
     void insert(ObjKey value, IndexKey<ChunkWidth> key);
-    template <size_t ChunkWidth>
     void erase(ObjKey value, IndexKey<ChunkWidth> key);
-    template <size_t ChunkWidth>
-    IndexIterator find_first(IndexKey<ChunkWidth> key) const;
-    template <size_t ChunkWidth>
+    IndexIterator find_first(IndexKey<ChunkWidth> key,
+                             std::vector<std::unique_ptr<IndexNode<ChunkWidth>>>& accessor_chain) const;
     void find_all(std::vector<ObjKey>& results, IndexKey<ChunkWidth> key) const;
-    template <size_t ChunkWidth>
     FindRes find_all_no_copy(IndexKey<ChunkWidth> value, InternalFindResult& result) const;
     void clear();
     bool has_duplicate_values() const;
     bool is_empty() const;
 
-    template <size_t ChunkWidth>
     void print() const;
-    template <size_t ChunkWidth>
     void verify() const;
 
 private:
     // An IndexNode is a radix tree with the following properties:
     //
-    // 1) Every element is a RefOrTagged value. This has the nice property that
-    // to destroy a tree, you simply call Array::destroy_deep() and all refs
-    // are recursively deleted. This property is shared with the StringIndex so that
+    // 1) Every element is a RefOrTagged value. This has the nice property that to
+    // destroy a tree, you simply call Array::destroy_deep() and all refs are
+    // recursively deleted. This property is shared with the StringIndex so that
     // migrations from the StringIndex to a RadixTree can safely call clear() without
     // having to know what the underlying structure actually is.
     //
-    // 2) A ref stored in this tree could point to another radix tree node or an IntegerColumn.
-    // The difference is that an IndexNode has the Array::context_flag set in its header.
-    // An IntegerColumn is used to store a list of ObjectKeys that have the same values.
-    // An IntegerColumn is also used to store a single ObjectKey if the actual ObjectKey value
-    // has the high bit set (ie. is a tombstone); this is necessary because we can't lose the top
-    // bit when tagging the value.
+    // 2) A ref stored in this tree could point to another radix tree node or an
+    // IntegerColumn. The difference is that an IndexNode has the Array::context_flag
+    // set in its header. An IntegerColumn is used to store a list of ObjectKeys that
+    // have the same values. An IntegerColumn is also used to store a single ObjectKey
+    // if the actual ObjectKey value has the high bit set (ie. is a tombstone); this is
+    // necessary because we can't lose the top bit when tagging the value.
     //
-    // 3) An IndexNode has the capacity to store 2^(ChunkWidth + 1) - 1 elements.
-    // Eg. for a ChunkWidth of 6 it could store 255 values.
-    // But space for all these elements is only allocated as needed.
-    // There is a bit set in the population metadata fields for every
-    // entry present in the node. We get from from entry number to physical
-    // entry index by 1) masking out entries in the bit vector which are above the entry number
-    // and 2) counting the set bits in the result using the popcount instruction. The number of
-    // set bits is the physical index of the entry. This way we don't need to store null elements
-    // for entries which are not used. So we get fast access (no searching) but also a dense array.
-    // Having two population fields in the metadata allows us to support a ChunkWidth of up to log2(2*(64-1)).
-    // We lose a bit in each population field due to having to tag it (see property 1)
+    // 3) An IndexNode has the capacity to store 2^(ChunkWidth + 1) - 1 elements. Eg.
+    // for a ChunkWidth of 6 it could store 255 values. But space for all these
+    // elements is only allocated as needed. There is a bit set in the population
+    // metadata fields for every entry present in the node. We get from from entry
+    // number to physical entry index by 1) masking out entries in the bit vector which
+    // are above the entry number and 2) counting the set bits in the result using the
+    // popcount instruction. The number of set bits is the physical index of the entry.
+    // This way we don't need to store null elements for entries which are not used. So
+    // we get fast access (no searching) but also a dense array. This bit-mask scheme
+    // requires one metadata field for population per every 63 elements of storage. We
+    // lose a bit in each population field due to having to tag it (see property 1) For
+    // example, for a ChunkWidth of 6, we have 2^6=64 elements so we need two
+    // population fields, the second is only used for one bit. Having two population
+    // fields in the metadata allows us to support a ChunkWidth of up to
+    // log2(2*(64-1)).
     //
-    // 4) Each IndexNode has the ability to store an arbitrary length prefix. This optimization has the potential
-    // to cut out many interior nodes of the tree if the values are clustered together. The number of chunks of
-    // prefix are stored in the c_ndx_of_prefix_size metadata entry. The value of the prefix is stored in
-    // c_ndx_of_prefix_payload, the int64_t value is packed with as many chunks as possible and if the prefix is
-    // longer than a single (tagged) int64_t can hold, then the payload is a ref to an IntegerColumn which stores
-    // the prefix packed together in a sequence. Note that for integer values a column will never be needed.
-    //
-    //
+    // 4) Each IndexNode has the ability to store an arbitrary length prefix. This
+    // optimization has the potential to cut out many interior nodes of the tree if the
+    // values are clustered together. The number of chunks of prefix are stored in the
+    // c_ndx_of_prefix_size metadata entry. The value of the prefix is stored in
+    // c_ndx_of_prefix_payload, the int64_t value is packed with as many chunks as
+    // possible and if the prefix is longer than a single (tagged) int64_t can hold,
+    // then the payload is a ref to an IntegerColumn which stores the prefix packed
+    // together in a sequence. Note that for integer values a column will never be
+    // needed.
+    constexpr static size_t c_num_bits_per_tagged_int = 63;
     constexpr static size_t c_ndx_of_population_0 = 0;
-    constexpr static size_t c_ndx_of_population_1 = 1;
-    constexpr static size_t c_ndx_of_prefix_size = 2;
-    constexpr static size_t c_ndx_of_prefix_payload = 3;
-    constexpr static size_t c_ndx_of_null = 4; // adjacent to data so that iteration works
-    constexpr static size_t c_num_metadata_entries = 5;
+    constexpr static size_t c_num_population_entries = ((1 << ChunkWidth) / c_num_bits_per_tagged_int) + 1;
+    constexpr static size_t c_ndx_of_prefix_size = c_num_population_entries;
+    constexpr static size_t c_ndx_of_prefix_payload = c_num_population_entries + 1;
+    // keep the null entry adjacent to the data so that iteration works
+    constexpr static size_t c_ndx_of_null = c_num_population_entries + 2;
+    constexpr static size_t c_num_metadata_entries = c_num_population_entries + 3;
 
-    template <size_t ChunkWidth>
     std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, IndexKey<ChunkWidth>& key);
-    uint64_t get_population_0() const;
-    uint64_t get_population_1() const;
-    void set_population_0(uint64_t pop);
-    void set_population_1(uint64_t pop);
+    uint64_t get_population(size_t ndx) const;
+    void set_population(size_t ndx, uint64_t pop);
     bool has_prefix() const;
-    template <size_t ChunkWidth>
     typename IndexKey<ChunkWidth>::Prefix get_prefix() const;
-    template <size_t ChunkWidth>
     void set_prefix(const typename IndexKey<ChunkWidth>::Prefix& prefix);
-    template <size_t ChunkWidth>
     void do_prefix_insert(IndexKey<ChunkWidth>& key);
 
-    struct InsertResult {
-        bool did_exist;
-        size_t real_index;
-    };
-    template <size_t ChunkWidth>
     InsertResult insert_to_population(IndexKey<ChunkWidth>& key);
     InsertResult do_insert_to_population(uint64_t population_value);
 
-    template <size_t ChunkWidth>
     std::optional<size_t> index_of(const IndexKey<ChunkWidth>& key) const;
     bool do_remove(size_t index_raw);
 };
@@ -258,34 +249,35 @@ public:
 private:
     void erase(ObjKey key, const Mixed& new_value);
 
-    RadixTree(const ClusterColumn& target_column, std::unique_ptr<IndexNode> root)
+    RadixTree(const ClusterColumn& target_column, std::unique_ptr<IndexNode<ChunkWidth>> root)
         : SearchIndex(target_column, root.get())
         , m_array(std::move(root))
     {
     }
-    std::unique_ptr<IndexNode> m_array;
+    std::unique_ptr<IndexNode<ChunkWidth>> m_array;
 };
 
 // Implementation:
 template <size_t ChunkWidth>
 RadixTree<ChunkWidth>::RadixTree(const ClusterColumn& target_column, Allocator& alloc)
-    : RadixTree(target_column, IndexNode::create(alloc))
+    : RadixTree(target_column, IndexNode<ChunkWidth>::create(alloc))
 {
 }
 
 template <size_t ChunkWidth>
 inline RadixTree<ChunkWidth>::RadixTree(ref_type ref, ArrayParent* parent, size_t ndx_in_parent,
                                         const ClusterColumn& target_column, Allocator& alloc)
-    : RadixTree(target_column, std::make_unique<IndexNode>(alloc))
+    : RadixTree(target_column, std::make_unique<IndexNode<ChunkWidth>>(alloc))
 {
     REALM_ASSERT_EX(Array::get_context_flag_from_header(alloc.translate(ref)), ref, size_t(alloc.translate(ref)));
     m_array->init_from_ref(ref);
     m_array->set_parent(parent, ndx_in_parent);
 }
 
-// The node width is a tradeoff between number of intermediate nodes and write amplification
-// A chunk width of 6 means 63 keys per node which should be a reasonable size.
-// Modifying this is a file format breaking change that requires integer indexes to be deleted and added again.
+// The node width is a tradeoff between number of intermediate nodes and write
+// amplification A chunk width of 6 means 63 keys per node which should be a
+// reasonable size. Modifying this is a file format breaking change that requires
+// integer indexes to be deleted and added again.
 using IntegerIndex = RadixTree<6>;
 
 } // namespace realm

@@ -52,6 +52,7 @@ set(REALM_SOURCES
     query_expression.cpp
     query_value.cpp
     radix_tree.cpp
+    radix_tree_templates.cpp
     replication.cpp
     set.cpp
     spec.cpp

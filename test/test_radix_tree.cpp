@@ -87,7 +87,7 @@ TEST_TYPES(IndexKey_Get, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf
     }
 }
 
-ONLY_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6> /*, ChunkOf<7>, ChunkOf<8>, ChunkOf<9>, ChunkOf<10>*/)
+TEST_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf<8>, ChunkOf<9>, ChunkOf<10>)
 {
     constexpr size_t ChunkWidth = TEST_TYPE::value;
 
