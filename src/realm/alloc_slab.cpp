@@ -25,6 +25,7 @@
 #include <map>
 #include <atomic>
 #include <cstring>
+#include <iostream>
 
 #if REALM_DEBUG
 #include <iostream>
@@ -516,6 +517,9 @@ void SlabAlloc::do_free(ref_type ref, char* addr)
     size_t size =
         read_only ? NodeHeader::get_byte_size_from_header(addr) : NodeHeader::get_capacity_from_header(addr);
 
+    if (size == 56) {
+        std::cerr << "Free ref: " << ref << " size: " << size << "\n";
+    }
 #ifdef REALM_DEBUG
     if (REALM_COVER_NEVER(m_debug_out))
         std::cerr << "Free ref: " << ref << " size: " << size << "\n";
