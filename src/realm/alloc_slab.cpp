@@ -502,7 +502,7 @@ SlabAlloc::FreeBlock* SlabAlloc::grow_slab(int size)
     return slab_to_entry(slab, ref);
 }
 
-
+int jed;
 void SlabAlloc::do_free(ref_type ref, char* addr)
 {
     REALM_ASSERT_EX(translate(ref) == addr, translate(ref), addr, get_file_path_for_assertions());
@@ -519,6 +519,9 @@ void SlabAlloc::do_free(ref_type ref, char* addr)
 
     if (size == 56) {
         std::cerr << "Free ref: " << ref << " size: " << size << "\n";
+        if (ref == 2300592) {
+            jed++;
+        }
     }
 #ifdef REALM_DEBUG
     if (REALM_COVER_NEVER(m_debug_out))
