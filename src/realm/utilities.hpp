@@ -250,6 +250,12 @@ inline size_t index_of_nth_bit(uint64_t population, size_t n)
     return index;
 }
 
+// TODO: the std provides a constexpr ceil in C++23
+constexpr int32_t constexpr_ceil(float num)
+{
+    return (static_cast<float>(static_cast<int32_t>(num)) == num) ? static_cast<int32_t>(num)
+                                                                  : static_cast<int32_t>(num) + ((num > 0) ? 1 : 0);
+}
 
 // Implementation:
 

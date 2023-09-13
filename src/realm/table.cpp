@@ -851,12 +851,12 @@ static std::unique_ptr<SearchIndex> make_index(ColKey col_key, const ClusterColu
                                                size_t col_ndx = realm::npos)
 {
     if (parent) {
-        if (col_key.get_type() == col_type_Int) {
+        if (col_key.get_type() == col_type_Int || col_key.get_type() == col_type_Timestamp) {
             return std::make_unique<IntegerIndex>(ref, parent, col_ndx, cluster, alloc);
         }
         return std::make_unique<StringIndex>(ref, parent, col_ndx, cluster, alloc);
     }
-    if (col_key.get_type() == col_type_Int) {
+    if (col_key.get_type() == col_type_Int || col_key.get_type() == col_type_Timestamp) {
         return std::make_unique<IntegerIndex>(cluster, alloc); // Throws
     }
     return std::make_unique<StringIndex>(cluster, alloc); // Throws

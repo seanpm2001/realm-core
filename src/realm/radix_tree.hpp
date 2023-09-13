@@ -77,6 +77,38 @@ public:
             REALM_ASSERT_3(ret, <, (1 << ChunkWidth));
             return ret;
         }
+        else if (m_mixed.is_type(type_Timestamp)) {
+            Timestamp ts = m_mixed.get<Timestamp>();
+            static_assert(sizeof(ts.get_seconds()) == 8, "index format change");
+            static_assert(sizeof(ts.get_nanoseconds()) == 4, "index format change");
+            size_t bits_begin = m_offset * ChunkWidth;
+            size_t bits_end = (1 + m_offset) * ChunkWidth;
+
+            constexpr size_t chunks_in_seconds = constexpr_ceil(64.0 / double(ChunkWidth));
+            constexpr size_t remainder_bits_in_seconds = 64 % ChunkWidth;
+            constexpr size_t remainder_bits_in_ns =
+                remainder_bits_in_seconds == 0 ? 0 : (ChunkWidth - remainder_bits_in_seconds);
+            if (bits_begin < 64) {
+                if (bits_end <= 64) {
+                    // just seconds
+                    ret = (uint64_t(ts.get_seconds()) & (c_int_mask >> (m_offset * ChunkWidth))) >> (64 - bits_end);
+                }
+                else {
+                    // both seconds and nanoseconds
+                    ret = (uint64_t(ts.get_seconds()) & (c_int_mask >> (m_offset * ChunkWidth)))
+                          << remainder_bits_in_ns;
+                    ret += uint32_t(ts.get_nanoseconds()) >> (32 - (bits_end - 64));
+                }
+            }
+            else {
+                // nanoseconds only
+                ret = (uint32_t(ts.get_nanoseconds()) &
+                       (c_int_mask >> (32 + remainder_bits_in_ns + (m_offset - chunks_in_seconds) * ChunkWidth))) >>
+                      (32 - (bits_end - 64));
+            }
+            REALM_ASSERT_EX(ret < (1 << ChunkWidth), ret, ts.get_seconds(), ts.get_nanoseconds(), m_offset);
+            return ret;
+        }
         //        if (m_mixed.is_type(type_String)) {
         //            REALM_ASSERT_EX(ChunkWidth == 8, ChunkWidth); // FIXME: other sizes for strings
         //            return m_mixed.get<StringData>()[m_offset];
@@ -99,6 +131,10 @@ public:
         }
         if (m_mixed.is_type(type_Int)) {
             return (m_offset * ChunkWidth) + ChunkWidth >= 64;
+        }
+        else if (m_mixed.is_type(type_Timestamp)) {
+            // 64 bit seconds, 32 bit nanoseconds
+            return (m_offset * ChunkWidth) + ChunkWidth >= (64 + 32);
         }
         REALM_UNREACHABLE(); // FIXME: other types
     }

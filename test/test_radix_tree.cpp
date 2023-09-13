@@ -94,12 +94,12 @@ TEST_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf<8>
     Table::IndexMaker hook = [](ColKey col_key, const ClusterColumn& cluster, Allocator& alloc, ref_type ref,
                                 Array* parent, size_t col_ndx) -> std::unique_ptr<SearchIndex> {
         if (parent) {
-            if (col_key.get_type() == col_type_Int) {
+            if (col_key.get_type() == col_type_Int || col_key.get_type() == col_type_Timestamp) {
                 return std::make_unique<RadixTree<ChunkWidth>>(ref, parent, col_ndx, cluster, alloc);
             }
             return std::make_unique<StringIndex>(ref, parent, col_ndx, cluster, alloc);
         }
-        if (col_key.get_type() == col_type_Int) {
+        if (col_key.get_type() == col_type_Int || col_key.get_type() == col_type_Timestamp) {
             return std::make_unique<RadixTree<ChunkWidth>>(cluster, alloc); // Throws
         }
         return std::make_unique<StringIndex>(cluster, alloc); // Throws
@@ -135,40 +135,70 @@ TEST_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf<8>
         0xEEE000000000000,
         0xEFF000000000000,
     };
+    auto timestamp_from_int = [](int64_t val) -> Timestamp {
+        int32_t ns = uint64_t(val) >> 32;
+        if (val < 0 && ns > 0) {
+            ns *= -1;
+        }
+        return Timestamp{val, ns};
+    };
     std::vector<ObjKey> keys;
 
     Table table(Allocator::get_default(), std::move(hook));
-    ColKey col = table.add_column(type_Int, "values");
-    table.add_search_index(col);
-    for (size_t i = 0; i < values.size(); ++i) {
-        auto obj = table.create_object().set(col, values[i]);
+    constexpr bool nullable = true;
+    ColKey col_int = table.add_column(type_Int, "values_int", nullable);
+    ColKey col_timestamp = table.add_column(type_Timestamp, "values_timestamp", nullable);
+    table.add_search_index(col_int);
+    table.add_search_index(col_timestamp);
+
+    for (auto val : values) {
+        auto obj = table.create_object().set(col_int, val).set(col_timestamp, timestamp_from_int(val));
         keys.push_back(obj.get_key());
     }
-    //    const ObjKey key_of_null{999};
-    //    keys.push_back(key_of_null);
-    //    tree.insert(key_of_null, Mixed{});
+    Obj null_val_obj = table.create_object().set_null(col_int).set_null(col_timestamp);
+    keys.push_back(null_val_obj.get_key());
+
+    SearchIndex* ndx_int = table.get_search_index(col_int);
+    CHECK(ndx_int);
+    SearchIndex* ndx_timestamp = table.get_search_index(col_timestamp);
+    CHECK(ndx_timestamp);
 
     for (size_t i = 0; i < values.size(); ++i) {
         size_t expected_count = 1;
         int64_t val = values[i];
+        Timestamp val_timestamp = timestamp_from_int(val);
         if (val == dup_positive || val == dup_negative) {
             expected_count = 4;
         }
-        size_t count = table.count_int(col, val);
-        CHECK_EQUAL(count, expected_count);
+        CHECK_EQUAL(expected_count, ndx_int->count(val));
+        CHECK_EQUAL(expected_count, ndx_timestamp->count(val_timestamp));
         if (expected_count == 1) {
-            ObjKey found_key = table.find_first_int(col, val);
             ObjKey expected_key = keys[i];
-            CHECK_EQUAL(found_key, expected_key);
+            CHECK_EQUAL(expected_key, ndx_int->find_first(val));
+            CHECK_EQUAL(expected_key, ndx_timestamp->find_first(val_timestamp));
         }
     }
-    //    CHECK_EQUAL(tree.count(Mixed{}), 1);
-    //    CHECK_EQUAL(tree.find_first(Mixed{}), key_of_null);
-    //    CHECK(!tree.is_empty());
+    CHECK_EQUAL(null_val_obj.get_key(), ndx_int->find_first(Mixed{}));
+    CHECK_EQUAL(null_val_obj.get_key(), ndx_timestamp->find_first(Mixed{}));
+    CHECK_EQUAL(ndx_int->count(Mixed{}), 1);
+    CHECK_EQUAL(ndx_timestamp->count(Mixed{}), 1);
+    CHECK(ndx_int->has_duplicate_values());
+    CHECK(ndx_timestamp->has_duplicate_values());
+    CHECK_NOT(ndx_int->is_empty());
+    CHECK_NOT(ndx_timestamp->is_empty());
 
     for (auto key : keys) {
         table.remove_object(key);
     }
+    CHECK_EQUAL(ndx_int->count(Mixed{}), 0);
+    CHECK_EQUAL(ndx_timestamp->count(Mixed{}), 0);
+    CHECK_NOT(ndx_int->has_duplicate_values());
+    CHECK_NOT(ndx_timestamp->has_duplicate_values());
+    CHECK(ndx_int->is_empty());
+    CHECK(ndx_timestamp->is_empty());
+    CHECK_EQUAL(ndx_int->find_first(Mixed{}), ObjKey{});
+    CHECK_EQUAL(ndx_timestamp->find_first(Mixed{}), ObjKey{});
+
     CHECK(table.is_empty());
     table.clear();
     CHECK(table.is_empty());
