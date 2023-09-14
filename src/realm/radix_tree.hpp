@@ -33,6 +33,11 @@ inline bool value_can_be_tagged_without_overflow(uint64_t val)
 template <size_t ChunkWidth>
 class IndexNode;
 
+struct ArrayChainLink {
+    ref_type array_ref;
+    size_t position;
+};
+
 struct IndexIterator {
     IndexIterator& operator++();
     IndexIterator next() const;
@@ -48,7 +53,7 @@ struct IndexIterator {
     }
 
 private:
-    std::vector<size_t> m_positions;
+    std::vector<ArrayChainLink> m_positions;
     std::optional<size_t> m_list_position;
     ObjKey m_key;
     template <size_t ChunkWidth>
@@ -177,8 +182,7 @@ public:
 
     void insert(ObjKey value, IndexKey<ChunkWidth> key);
     void erase(ObjKey value, IndexKey<ChunkWidth> key);
-    IndexIterator find_first(IndexKey<ChunkWidth> key,
-                             std::vector<std::unique_ptr<IndexNode<ChunkWidth>>>& accessor_chain) const;
+    IndexIterator find_first(IndexKey<ChunkWidth> key) const;
     void find_all(std::vector<ObjKey>& results, IndexKey<ChunkWidth> key) const;
     FindRes find_all_no_copy(IndexKey<ChunkWidth> value, InternalFindResult& result) const;
     void clear();
@@ -251,6 +255,7 @@ private:
 
     std::optional<size_t> index_of(const IndexKey<ChunkWidth>& key) const;
     bool do_remove(size_t index_raw);
+    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> get_accessors_chain(const IndexIterator& it);
 };
 
 template <size_t ChunkWidth>

@@ -40,6 +40,24 @@ using namespace realm::util;
 namespace realm {
 
 template <size_t ChunkWidth>
+std::vector<std::unique_ptr<IndexNode<ChunkWidth>>>
+IndexNode<ChunkWidth>::get_accessors_chain(const IndexIterator& it)
+{
+    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessors;
+    accessors.reserve(it.m_positions.size());
+    ArrayParent* parent = get_parent();
+    size_t ndx_in_parent = get_ndx_in_parent();
+    for (auto pair : it.m_positions) {
+        accessors.push_back(std::make_unique<IndexNode<ChunkWidth>>(m_alloc));
+        accessors.back()->init_from_ref(pair.array_ref);
+        accessors.back()->set_parent(parent, ndx_in_parent);
+        parent = accessors.back().get();
+        ndx_in_parent = pair.position;
+    }
+    return accessors;
+}
+
+template <size_t ChunkWidth>
 std::unique_ptr<IndexNode<ChunkWidth>> IndexNode<ChunkWidth>::create(Allocator& alloc)
 {
     const Array::Type type = Array::type_HasRefs;
@@ -306,18 +324,18 @@ template <size_t ChunkWidth>
 void IndexNode<ChunkWidth>::erase(ObjKey value, IndexKey<ChunkWidth> key)
 {
     init_from_parent();
-    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessor_chain;
-    IndexIterator it = find_first(key, accessor_chain);
+    IndexIterator it = find_first(key);
+    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessors_chain = get_accessors_chain(it);
     REALM_ASSERT_EX(it, value, key.get_mixed());
     REALM_ASSERT_EX(it.m_positions.size(), value, key.get_mixed());
-    REALM_ASSERT_EX(accessor_chain.back().get(), value, key.get_mixed());
+    REALM_ASSERT_EX(accessors_chain.size(), value, key.get_mixed());
 
     bool collapse_node = false;
     if (it.m_list_position) {
-        auto rot = accessor_chain.back()->get_as_ref_or_tagged(it.m_positions.back());
+        auto rot = accessors_chain.back()->get_as_ref_or_tagged(it.m_positions.back().position);
         REALM_ASSERT(rot.is_ref());
         IntegerColumn sub(m_alloc, rot.get_as_ref()); // Throws
-        sub.set_parent(accessor_chain.back().get(), it.m_positions.back());
+        sub.set_parent(accessors_chain.back().get(), it.m_positions.back().position);
         REALM_ASSERT_3(sub.size(), >, *it.m_list_position);
         auto ndx_in_list = sub.find_first(value.value);
         REALM_ASSERT(ndx_in_list != realm::not_found);
@@ -326,38 +344,35 @@ void IndexNode<ChunkWidth>::erase(ObjKey value, IndexKey<ChunkWidth> key)
         // FIXME: if the list is size one, put the remaining element back inline if possible
         if (sub.is_empty()) {
             sub.destroy();
-            collapse_node = accessor_chain.back()->do_remove(it.m_positions.back());
+            collapse_node = accessors_chain.back()->do_remove(it.m_positions.back().position);
         }
     }
     else {
         // not a list, just a tagged ObjKey
-        REALM_ASSERT_3(accessor_chain.back()->size(), >, it.m_positions.back());
-        collapse_node = accessor_chain.back()->do_remove(it.m_positions.back());
+        REALM_ASSERT_3(accessors_chain.back()->size(), >, it.m_positions.back().position);
+        collapse_node = accessors_chain.back()->do_remove(it.m_positions.back().position);
     }
     if (collapse_node) {
-        REALM_ASSERT(accessor_chain.back()->is_empty());
-        while (accessor_chain.size() > 1) {
-            std::unique_ptr<IndexNode> cur_node;
-            std::swap(cur_node, accessor_chain.back());
-            accessor_chain.pop_back();
-            if (!cur_node->is_empty()) {
+        REALM_ASSERT(accessors_chain.back()->is_empty());
+        while (accessors_chain.size() > 1) {
+            size_t ndx_in_parent = accessors_chain.back()->get_ndx_in_parent();
+            if (!accessors_chain.back()->is_empty()) {
                 break;
             }
-            accessor_chain.back()->do_remove(cur_node->get_ndx_in_parent());
-            cur_node->destroy();
+            accessors_chain.back()->destroy();
+            accessors_chain.pop_back();
+            accessors_chain.back()->do_remove(ndx_in_parent);
         }
     }
 }
 
 template <size_t ChunkWidth>
-IndexIterator
-IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key,
-                                  std::vector<std::unique_ptr<IndexNode<ChunkWidth>>>& accessor_chain) const
+IndexIterator IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key) const
 {
     IndexIterator ret;
-    std::unique_ptr<IndexNode<ChunkWidth>> cur_node = std::make_unique<IndexNode<ChunkWidth>>(m_alloc);
-    cur_node->init_from_ref(this->get_ref());
-    cur_node->set_parent(get_parent(), get_ndx_in_parent());
+    IndexNode<ChunkWidth> cur_node = IndexNode<ChunkWidth>(m_alloc);
+    cur_node.init_from_ref(this->get_ref());
+    cur_node.set_parent(get_parent(), get_ndx_in_parent());
 
     // search for nulls in the root
     if (!key.get()) {
@@ -369,20 +384,18 @@ IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key,
             }
             const IntegerColumn sub(m_alloc, ref); // Throws
             REALM_ASSERT(sub.size());
-            accessor_chain.push_back(std::move(cur_node));
-            ret.m_positions = {c_ndx_of_null};
+            ret.m_positions = {ArrayChainLink{cur_node.get_ref(), c_ndx_of_null}};
             ret.m_list_position = 0;
             ret.m_key = ObjKey(sub.get(0));
             return ret;
         }
-        accessor_chain.push_back(std::move(cur_node));
-        ret.m_positions = {c_ndx_of_null};
+        ret.m_positions = {ArrayChainLink{cur_node.get_ref(), c_ndx_of_null}};
         ret.m_key = ObjKey(rot.get_as_int());
         return ret;
     }
 
     while (true) {
-        auto cur_prefix = cur_node->get_prefix();
+        auto cur_prefix = cur_node.get_prefix();
         for (auto prefix_chunk : cur_prefix) {
             auto key_chunk = key.get();
             if (!key_chunk || *key_chunk != size_t(prefix_chunk.to_ullong())) {
@@ -390,14 +403,12 @@ IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key,
             }
             key.next();
         }
-        std::optional<size_t> ndx = cur_node->index_of(key);
+        std::optional<size_t> ndx = cur_node.index_of(key);
         if (!ndx) {
             return {}; // no index entry
         }
-        accessor_chain.push_back(std::move(cur_node));
-        ret.m_positions.push_back(*ndx);
-        IndexNode* node = accessor_chain.back().get();
-        auto rot = node->get_as_ref_or_tagged(*ndx);
+        auto rot = cur_node.get_as_ref_or_tagged(*ndx);
+        ret.m_positions.push_back({cur_node.get_ref(), *ndx});
         if (rot.is_tagged()) {
             REALM_ASSERT(key.is_last());
             ret.m_key = ObjKey(rot.get_as_int());
@@ -417,10 +428,7 @@ IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key,
             }
             else {
                 key.get_next();
-                auto sub_node = std::make_unique<IndexNode>(m_alloc);
-                sub_node->init_from_ref(ref);
-                sub_node->set_parent(node, *ndx);
-                cur_node = std::move(sub_node);
+                cur_node.init_from_ref(ref);
                 continue;
             }
         }
@@ -431,8 +439,7 @@ IndexNode<ChunkWidth>::find_first(IndexKey<ChunkWidth> key,
 template <size_t ChunkWidth>
 void IndexNode<ChunkWidth>::find_all(std::vector<ObjKey>& results, IndexKey<ChunkWidth> key) const
 {
-    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessor_chain;
-    IndexIterator it = find_first(key, accessor_chain);
+    IndexIterator it = find_first(key);
     if (!it) {
         return;
     }
@@ -441,7 +448,9 @@ void IndexNode<ChunkWidth>::find_all(std::vector<ObjKey>& results, IndexKey<Chun
         return;
     }
     REALM_ASSERT(it.m_positions.size());
-    auto rot = accessor_chain.back()->get_as_ref_or_tagged(it.m_positions.back());
+    IndexNode<ChunkWidth> last(m_alloc);
+    last.init_from_ref(it.m_positions.back().array_ref);
+    auto rot = last.get_as_ref_or_tagged(it.m_positions.back().position);
     REALM_ASSERT(rot.is_ref());
     ref_type ref = rot.get_as_ref();
     char* header = m_alloc.translate(ref);
@@ -456,8 +465,7 @@ void IndexNode<ChunkWidth>::find_all(std::vector<ObjKey>& results, IndexKey<Chun
 template <size_t ChunkWidth>
 FindRes IndexNode<ChunkWidth>::find_all_no_copy(IndexKey<ChunkWidth> value, InternalFindResult& result) const
 {
-    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessor_chain;
-    IndexIterator it = find_first(value, accessor_chain);
+    IndexIterator it = find_first(value);
     if (!it) {
         return FindRes::FindRes_not_found;
     }
@@ -466,7 +474,9 @@ FindRes IndexNode<ChunkWidth>::find_all_no_copy(IndexKey<ChunkWidth> value, Inte
         return FindRes::FindRes_single;
     }
     REALM_ASSERT(it.m_positions.size());
-    auto rot = accessor_chain.back()->get_as_ref_or_tagged(it.m_positions.back());
+    IndexNode<ChunkWidth> last(m_alloc);
+    last.init_from_ref(it.m_positions.back().array_ref);
+    auto rot = last.get_as_ref_or_tagged(it.m_positions.back().position);
     REALM_ASSERT(rot.is_ref());
     ref_type ref = rot.get_as_ref();
     char* header = m_alloc.translate(ref);
@@ -527,9 +537,10 @@ typename IndexKey<ChunkWidth>::Prefix IndexNode<ChunkWidth>::get_prefix() const
     if (num_chunks == 0) {
         return prefix;
     }
-    auto unpack_prefix = [&prefix](int64_t packed_value) {
+    prefix.reserve(num_chunks);
+    auto unpack_prefix = [&prefix, &num_chunks](int64_t packed_value) {
         IndexKey<ChunkWidth> compact_prefix(packed_value);
-        for (size_t i = 0; i < IndexKey<ChunkWidth>::c_key_chunks_per_prefix; ++i) {
+        for (size_t i = 0; i < IndexKey<ChunkWidth>::c_key_chunks_per_prefix && prefix.size() < num_chunks; ++i) {
             auto chunk = compact_prefix.get();
             REALM_ASSERT(chunk);
             prefix.push_back(*chunk);
@@ -556,10 +567,6 @@ typename IndexKey<ChunkWidth>::Prefix IndexNode<ChunkWidth>::get_prefix() const
         // a single value prefix has been shifted one to the right
         // to allow it to be tagged without losing the high bit
         unpack_prefix(rot_payload.get_as_int() << 1);
-    }
-    // there may have been some extra chunks read in the last value
-    if (prefix.size() > num_chunks) {
-        prefix.erase(prefix.begin() + num_chunks, prefix.end());
     }
     REALM_ASSERT_3(prefix.size(), ==, num_chunks);
     return prefix;
@@ -825,8 +832,7 @@ template <size_t ChunkWidth>
 ObjKey RadixTree<ChunkWidth>::find_first(const Mixed& val) const
 {
     m_array->update_from_parent();
-    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessor_chain;
-    return m_array->find_first(IndexKey<ChunkWidth>(val), accessor_chain).get_key();
+    return m_array->find_first(IndexKey<ChunkWidth>(val)).get_key();
 }
 
 template <size_t ChunkWidth>
@@ -848,19 +854,19 @@ template <size_t ChunkWidth>
 size_t RadixTree<ChunkWidth>::count(const Mixed& val) const
 {
     m_array->update_from_parent();
-    std::vector<std::unique_ptr<IndexNode<ChunkWidth>>> accessor_chain;
-    auto it = m_array->find_first(IndexKey<ChunkWidth>(val), accessor_chain);
+    auto it = m_array->find_first(IndexKey<ChunkWidth>(val));
     if (!it) {
         return 0;
     }
     if (!it.m_list_position) {
         return 1;
     }
-    REALM_ASSERT(accessor_chain.size());
     REALM_ASSERT(it.m_positions.size());
-    auto rot = accessor_chain.back()->get_as_ref_or_tagged(it.m_positions.back());
+    IndexNode<ChunkWidth> last(m_array->get_alloc());
+    last.init_from_ref(it.m_positions.back().array_ref);
+    auto rot = last.get_as_ref_or_tagged(it.m_positions.back().position);
     REALM_ASSERT_RELEASE_EX(rot.is_ref(), rot.get_as_int());
-    const IntegerColumn sub(accessor_chain.back()->get_alloc(), rot.get_as_ref()); // Throws
+    const IntegerColumn sub(last.get_alloc(), rot.get_as_ref()); // Throws
     const size_t sz = sub.size();
     REALM_ASSERT(sz);
     // FIXME: isn't m_list_position always 0? or can a list store different values?
