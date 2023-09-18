@@ -23,6 +23,9 @@
 #include <realm/cluster_tree.hpp>
 #include <realm/search_index.hpp>
 
+#include <bitset>
+#include <vector>
+
 namespace realm {
 
 inline bool value_can_be_tagged_without_overflow(uint64_t val)
@@ -69,83 +72,29 @@ public:
         : m_mixed(m)
     {
     }
-    std::optional<size_t> get() const
-    {
-        if (m_mixed.is_null()) {
-            return {};
-        }
-        size_t ret = 0;
-        if (m_mixed.is_type(type_Int)) {
-            size_t rshift = (1 + m_offset) * ChunkWidth;
-            rshift = rshift < 64 ? 64 - rshift : 0;
-            ret = (uint64_t(m_mixed.get<Int>()) & (c_int_mask >> (m_offset * ChunkWidth))) >> rshift;
-            REALM_ASSERT_3(ret, <, (1 << ChunkWidth));
-            return ret;
-        }
-        else if (m_mixed.is_type(type_Timestamp)) {
-            Timestamp ts = m_mixed.get<Timestamp>();
-            static_assert(sizeof(ts.get_seconds()) == 8, "index format change");
-            static_assert(sizeof(ts.get_nanoseconds()) == 4, "index format change");
-            size_t bits_begin = m_offset * ChunkWidth;
-            size_t bits_end = (1 + m_offset) * ChunkWidth;
-
-            constexpr size_t chunks_in_seconds = constexpr_ceil(64.0 / double(ChunkWidth));
-            constexpr size_t remainder_bits_in_seconds = 64 % ChunkWidth;
-            constexpr size_t remainder_bits_in_ns =
-                remainder_bits_in_seconds == 0 ? 0 : (ChunkWidth - remainder_bits_in_seconds);
-            if (bits_begin < 64) {
-                if (bits_end <= 64) {
-                    // just seconds
-                    ret = (uint64_t(ts.get_seconds()) & (c_int_mask >> (m_offset * ChunkWidth))) >> (64 - bits_end);
-                }
-                else {
-                    // both seconds and nanoseconds
-                    ret = (uint64_t(ts.get_seconds()) & (c_int_mask >> (m_offset * ChunkWidth)))
-                          << remainder_bits_in_ns;
-                    ret += uint32_t(ts.get_nanoseconds()) >> (32 - (bits_end - 64));
-                }
-            }
-            else {
-                // nanoseconds only
-                ret = (uint32_t(ts.get_nanoseconds()) &
-                       (c_int_mask >> (32 + remainder_bits_in_ns + (m_offset - chunks_in_seconds) * ChunkWidth))) >>
-                      (32 - (bits_end - 64));
-            }
-            REALM_ASSERT_EX(ret < (1 << ChunkWidth), ret, ts.get_seconds(), ts.get_nanoseconds(), m_offset);
-            return ret;
-        }
-        //        if (m_mixed.is_type(type_String)) {
-        //            REALM_ASSERT_EX(ChunkWidth == 8, ChunkWidth); // FIXME: other sizes for strings
-        //            return m_mixed.get<StringData>()[m_offset];
-        //        }
-        REALM_UNREACHABLE(); // FIXME: implement if needed
-    }
+    std::optional<size_t> get() const;
     std::optional<size_t> get_next()
     {
+        REALM_ASSERT_DEBUG_EX(get(), m_offset, m_mixed);
         ++m_offset;
         return get();
     }
     void next()
     {
+        REALM_ASSERT_DEBUG_EX(get(), m_offset, m_mixed);
         ++m_offset;
-    }
-    bool is_last() const
-    {
-        if (m_mixed.is_null()) {
-            return true;
-        }
-        if (m_mixed.is_type(type_Int)) {
-            return (m_offset * ChunkWidth) + ChunkWidth >= 64;
-        }
-        else if (m_mixed.is_type(type_Timestamp)) {
-            // 64 bit seconds, 32 bit nanoseconds
-            return (m_offset * ChunkWidth) + ChunkWidth >= (64 + 32);
-        }
-        REALM_UNREACHABLE(); // FIXME: other types
     }
     const Mixed& get_mixed() const
     {
         return m_mixed;
+    }
+    size_t get_offset() const
+    {
+        return m_offset;
+    }
+    void set_offset(size_t offset)
+    {
+        m_offset = offset;
     }
     using Prefix = std::vector<std::bitset<ChunkWidth>>;
     Prefix advance_chunks(size_t num_chunks = realm::npos);
@@ -180,13 +129,15 @@ public:
 
     static std::unique_ptr<IndexNode> create(Allocator& alloc);
 
-    void insert(ObjKey value, IndexKey<ChunkWidth> key);
-    void erase(ObjKey value, IndexKey<ChunkWidth> key);
-    IndexIterator find_first(IndexKey<ChunkWidth> key) const;
-    void find_all(std::vector<ObjKey>& results, IndexKey<ChunkWidth> key) const;
-    FindRes find_all_no_copy(IndexKey<ChunkWidth> value, InternalFindResult& result) const;
+    void insert(ObjKey value, IndexKey<ChunkWidth> key, const ClusterColumn& cluster);
+    void erase(ObjKey value, IndexKey<ChunkWidth> key, const ClusterColumn& cluster);
+    IndexIterator find_first(IndexKey<ChunkWidth> key, const ClusterColumn& cluster) const;
+    void find_all(std::vector<ObjKey>& results, IndexKey<ChunkWidth> key, const ClusterColumn& cluster) const;
+    FindRes find_all_no_copy(IndexKey<ChunkWidth> value, InternalFindResult& result,
+                             const ClusterColumn& cluster) const;
+    void find_all_insensitive(std::vector<ObjKey>& results, const Mixed& value, const ClusterColumn& cluster) const;
     void clear();
-    bool has_duplicate_values() const;
+    bool has_duplicate_values(const ClusterColumn& cluster) const;
     bool is_empty() const;
 
     void print() const;
@@ -242,7 +193,13 @@ private:
     constexpr static size_t c_ndx_of_null = c_num_population_entries + 2;
     constexpr static size_t c_num_metadata_entries = c_num_population_entries + 3;
 
-    std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, IndexKey<ChunkWidth>& key);
+    std::unique_ptr<IndexNode> make_inner_node_at(size_t ndx);
+    void make_sorted_list_at(size_t ndx, ObjKey existing, ObjKey key_to_insert, Mixed insert_value,
+                             const ClusterColumn& cluster);
+    std::unique_ptr<IndexNode> do_add_direct(ObjKey value, size_t ndx, const IndexKey<ChunkWidth>& key,
+                                             const ClusterColumn& cluster, bool inner_node);
+    std::unique_ptr<IndexNode> do_add_last(ObjKey value, size_t ndx, const IndexKey<ChunkWidth>& key,
+                                           const ClusterColumn& cluster);
     uint64_t get_population(size_t ndx) const;
     void set_population(size_t ndx, uint64_t pop);
     bool has_prefix() const;
@@ -278,6 +235,7 @@ public:
     bool is_empty() const final;
     void insert_bulk(const ArrayUnsigned* keys, uint64_t key_offset, size_t num_values, ArrayPayload& values) final;
     void verify() const final;
+    void destroy() noexcept override;
 
 #ifdef REALM_DEBUG
     void print() const final;

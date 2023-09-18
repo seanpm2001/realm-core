@@ -351,7 +351,7 @@ bool LinkChain::add(ColKey ck)
 
 // -- Table ---------------------------------------------------------------------------------
 
-Table::Table(Allocator& alloc, IndexMaker callback)
+Table::Table(Allocator& alloc)
     : m_alloc(alloc)
     , m_top(m_alloc)
     , m_spec(m_alloc)
@@ -361,7 +361,6 @@ Table::Table(Allocator& alloc, IndexMaker callback)
     , m_opposite_column(m_alloc)
     , m_repl(&g_dummy_replication)
     , m_own_ref(this, alloc.get_instance_version())
-    , m_index_maker(std::move(callback))
 {
     m_spec.set_parent(&m_top, top_position_for_spec);
     m_index_refs.set_parent(&m_top, top_position_for_search_indexes);
@@ -896,6 +895,11 @@ void Table::do_add_search_index(ColKey col_key, IndexType type)
     m_index_refs.set(column_ndx, index->get_ref()); // Throws
 
     populate_search_index(col_key);
+}
+
+void Table::set_index_maker(IndexMaker hook)
+{
+    m_index_maker = std::move(hook);
 }
 
 void Table::add_search_index(ColKey col_key, IndexType type)

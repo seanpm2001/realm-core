@@ -28,5 +28,6 @@
 namespace realm {
 
 template class RadixTree<6>;
+template class RadixTree<8>;
 
 } // namespace realm

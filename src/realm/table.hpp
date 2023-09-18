@@ -96,12 +96,9 @@ public:
     enum class Type : uint8_t { TopLevel = 0, Embedded = 0x1, TopLevelAsymmetric = 0x2 };
     constexpr static uint8_t table_type_mask = 0x3;
 
-    using IndexMaker = util::UniqueFunction<std::unique_ptr<SearchIndex>(ColKey, const ClusterColumn&, Allocator&,
-                                                                         ref_type, Array*, size_t)>;
-
     /// Construct a new freestanding top-level table with static
     /// lifetime. For debugging only.
-    Table(Allocator& = Allocator::get_default(), IndexMaker cb = nullptr);
+    Table(Allocator& = Allocator::get_default());
 
     /// Construct a copy of the specified table as a new freestanding
     /// top-level table with static lifetime. For debugging only.
@@ -443,6 +440,10 @@ public:
     SearchIndex* get_search_index(ColKey col) const noexcept;
     StringIndex* get_string_index(ColKey col) const noexcept;
     IntegerIndex* get_int_index(ColKey col) const noexcept;
+
+    using IndexMaker = util::UniqueFunction<std::unique_ptr<SearchIndex>(ColKey, const ClusterColumn&, Allocator&,
+                                                                         ref_type, Array*, size_t)>;
+    void set_index_maker(IndexMaker hook); // for testing only
 
     template <class T>
     ObjKey find_first(ColKey col_key, T value) const;
