@@ -661,9 +661,25 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
     // include long prefix strings > s_max_offset with non-ascii suffixes to test string ordering in the index
     std::vector<std::string> string_storage = {base + "aaaaa", base + "aaaaA", base + "aaaaʄ", base + "aaaaÆ",
                                                base + "aaaaæ"};
-    std::vector<Mixed> set_values = {
-        1,         2.,     "John",  "Ringo", BinaryData("Paul"), BinaryData("George"), "Æ", "æ", "ÿ",
-        "Beatles", "john", "ringo", {}};
+    std::vector<Mixed> set_values = {1,
+                                     2.,
+                                     "John",
+                                     "Ringo",
+                                     BinaryData("Paul"),
+                                     BinaryData("George"),
+                                     "Æ",
+                                     "æ",
+                                     "ÿ",
+                                     "ʄ",
+                                     "Beatles",
+                                     "john",
+                                     "ringo",
+                                     {},
+                                     "",
+                                     "\0",
+                                     "\0\1",
+                                     "\0\0\1",
+                                     "\1\0"};
     for (auto& str : string_storage) {
         set_values.push_back(StringData(str));
     }
@@ -707,10 +723,12 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
         auto t = rt->get_table("table_for_mixed");
         auto col_mixed_set = t->get_column_key("mixedSet");
         auto col_string_set = t->get_column_key("stringSet");
+        auto col_binary_set = t->get_column_key("binarySet");
 
         auto obj1 = t->get_object_with_primary_key(1);
         auto mixed_set1 = obj1.get_set<Mixed>(col_mixed_set);
         auto string_set1 = obj1.get_set<StringData>(col_string_set);
+        auto binary_set1 = obj1.get_set<BinaryData>(col_binary_set);
         CHECK_EQUAL(mixed_set1.size(), set_values.size());
 
         // We will create some new sets with the same values as the old ones
@@ -719,10 +737,14 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
         auto obj2 = t->create_object_with_primary_key(2);
         auto mixed_set2 = obj2.get_set<Mixed>(col_mixed_set);
         auto string_set2 = obj2.get_set<StringData>(col_string_set);
+        auto binary_set2 = obj2.get_set<BinaryData>(col_binary_set);
         for (auto& val : set_values) {
             mixed_set2.insert(val);
             if (val.is_type(type_String) || val.is_null()) {
                 string_set2.insert(val.get<StringData>());
+                BinaryData bin(val.get<StringData>().data(), val.get<StringData>().size());
+                binary_set2.insert(bin);
+                mixed_set2.insert(bin);
             }
         }
 
@@ -740,7 +762,24 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
 
         for (size_t i = 0; i < string_values.size(); ++i) {
             CHECK_EQUAL(string_set1.get(i), string_set2.get(i));
+            Binary bin(string_values[i]);
+            CHECK_NOT_EQUAL(binary_set1.find(bin), realm::not_found);
             CHECK_NOT_EQUAL(string_set1.find(string_values[i]), realm::not_found);
+        }
+        for (size_t i = 1; i < string_set1.size(); ++i) {
+            auto prev = string_set1.get_any(i - 1);
+            auto cur = string_set1.get_andy(i);
+            CHECK_LESS(prev, cur);
+        }
+        for (size_t i = 1; i < binary_set1.size(); ++i) {
+            auto prev = binary_set1.get_any(i - 1);
+            auto cur = binary_set1.get_andy(i);
+            CHECK_LESS(prev, cur);
+        }
+        for (size_t i = 1; i < mixed_set1.size(); ++i) {
+            auto prev = mixed_set1.get_any(i - 1);
+            auto cur = mixed_set1.get_andy(i);
+            CHECK_LESS(prev, cur);
         }
 
         auto t2 = rt->get_table("table2");
@@ -782,13 +821,19 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
         TableRef t = g.add_table_with_primary_key("table_for_mixed", type_Int, "id", true);
         auto col_mixed_set = t->add_column_set(type_Mixed, "mixedSet", true);
         auto col_string_set = t->add_column_set(type_String, "stringSet", true);
+        auto col_binary_set = t->add_column_set(type_Binary, "binarySet", true);
         Obj obj = t->create_object_with_primary_key(1);
         auto mixed_set = obj.get_set<Mixed>(col_mixed_set);
         auto string_set = obj.get_set<StringData>(col_string_set);
+        auto binary_set = obj.get_set<BinaryData>(col_binary_set);
         for (auto& val : set_values) {
             mixed_set.insert(val);
             if (val.is_type(type_String) || val.is_null()) {
-                string_set.insert(val.get<StringData>());
+                auto str = val.get<StringData>();
+                BinaryData bin(str.data(), str.size());
+                string_set.insert(str);
+                binary_set.insert(bin);
+                mixed_set.insert(bin);
             }
         }
 

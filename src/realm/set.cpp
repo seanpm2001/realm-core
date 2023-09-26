@@ -30,6 +30,8 @@
 #include "realm/array_mixed.hpp"
 #include "realm/replication.hpp"
 
+#include <iostream>
+
 namespace realm {
 
 /********************************** SetBase *********************************/
@@ -241,42 +243,59 @@ void Set<T>::do_resort(size_t start, size_t end)
     std::sort(indices.begin(), indices.end(), [&](auto a, auto b) {
         return get(a + start) < get(b + start);
     });
+    //
+    //    size_t i = 0;
+    //    const size_t num_indices = indices.size();
+    //    std::sort(begin(), this->end(), [&](auto a, auto b) {
+    //        return a < b;
+    //    });
+    //    while (i < num_indices) {
+    //        if (i != indices[i]) {
+    //            m_tree->swap(i + start, start + indices[i]);
+    //            std::iter_swap(indices.begin() + i, indices.begin() + indices[i]);
+    //        }
+    //        else {
+    //            ++i;
+    //        }
+    //    }
     for (size_t i = 0; i < indices.size(); ++i) {
         if (indices[i] != i) {
             m_tree->swap(i + start, start + indices[i]);
+            //            std::iter_swap(indices.begin() + i, indices.begin() + indices[i]);
             auto it = std::find(indices.begin() + i, indices.end(), i);
             REALM_ASSERT(it != indices.end());
             *it = indices[i];
             indices[i] = i;
         }
     }
-}
-
-template <>
-void Set<Mixed>::migrate_strings()
-{
-    // sort order of strings changed
-    const size_t set_size = size();
-    size_t first_binary = set_size;
-    size_t first_string = set_size;
-    for (size_t n = 0; n < set_size; n++) {
-        auto val = m_tree->get(n);
-        if (val.is_type(type_String) && first_string == set_size) {
-            first_string = n;
-            continue;
-        }
-        if (val.is_type(type_Binary)) {
-            first_binary = n;
-            break;
-        }
+    std::cout << "list after sort\n";
+    for (size_t i = 0; i < size(); ++i) {
+        util::format(std::cout, "[%1]: %2\n", i, get(i));
     }
-    do_resort(first_string, first_binary);
 }
 
 template <>
-void Set<StringData>::migrate_strings()
+void Set<Mixed>::migration_resort()
+{
+    // sort order of strings and binaries changed
+    auto first_string = std::lower_bound(begin(), end(), StringData(""));
+    auto last_binary = std::partition_point(first_string, end(), [](const Mixed& item) {
+        return item.is_type(type_String, type_Binary);
+    });
+    do_resort(first_string.index(), last_binary.index());
+}
+
+template <>
+void Set<StringData>::migration_resort()
 {
     // sort order of strings changed
+    do_resort(0, size());
+}
+
+template <>
+void Set<BinaryData>::migration_resort()
+{
+    // sort order of binaries changed
     do_resort(0, size());
 }
 
