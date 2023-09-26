@@ -648,7 +648,7 @@ TEST_IF(Upgrade_Database_22, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
 }
 
 // FIXME: add migration test for decimal128
-TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE == 1000)
+ONLY(Upgrade_Database_23) //, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE == 1000)
 {
     // We should test that we can convert backlink arrays bigger that node size to BPlusTrees
     std::string path = test_util::get_test_resource_path() + "test_upgrade_database_" +
@@ -667,6 +667,8 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
                                      "Ringo",
                                      BinaryData("Paul"),
                                      BinaryData("George"),
+                                     Timestamp(0, 0),
+                                     ObjectId::gen(),
                                      "Æ",
                                      "æ",
                                      "ÿ",
@@ -682,6 +684,7 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
                                      "\1\0"};
     for (auto& str : string_storage) {
         set_values.push_back(StringData(str));
+        set_values.push_back(BinaryData(str.data(), str.size()));
     }
     std::sort(set_values.begin(), set_values.end()); // using default Mixed::operator<
 
@@ -742,43 +745,44 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
             mixed_set2.insert(val);
             if (val.is_type(type_String) || val.is_null()) {
                 string_set2.insert(val.get<StringData>());
-                BinaryData bin(val.get<StringData>().data(), val.get<StringData>().size());
-                binary_set2.insert(bin);
-                mixed_set2.insert(bin);
+            }
+            if (val.is_type(type_Binary) || val.is_null()) {
+                binary_set2.insert(val.get<BinaryData>());
             }
         }
 
+        CHECK_EQUAL(mixed_set1.size(), mixed_set2.size());
+        CHECK_EQUAL(string_set1.size(), string_set2.size());
+        CHECK_EQUAL(binary_set1.size(), binary_set2.size());
         for (size_t i = 0; i < set_values.size(); ++i) {
             CHECK_EQUAL(mixed_set1.get(i), mixed_set2.get(i));
             CHECK_NOT_EQUAL(mixed_set1.find(set_values[i]), realm::not_found);
-        }
-
-        std::vector<StringData> string_values;
-        for (auto& val : set_values) {
-            if (val.is_type(type_String) || val.is_null()) {
-                string_values.push_back(val.get_string());
+            if (set_values[i].is_type(type_String) || set_values[i].is_null()) {
+                CHECK_NOT_EQUAL(string_set1.find(set_values[i].get<StringData>()), realm::not_found);
+            }
+            if (set_values[i].is_type(type_Binary) || set_values[i].is_null()) {
+                CHECK_NOT_EQUAL(binary_set1.find(set_values[i].get<BinaryData>()), realm::not_found);
             }
         }
-
-        for (size_t i = 0; i < string_values.size(); ++i) {
+        for (size_t i = 0; i < string_set1.size(); ++i) {
             CHECK_EQUAL(string_set1.get(i), string_set2.get(i));
-            Binary bin(string_values[i]);
-            CHECK_NOT_EQUAL(binary_set1.find(bin), realm::not_found);
-            CHECK_NOT_EQUAL(string_set1.find(string_values[i]), realm::not_found);
+        }
+        for (size_t i = 0; i < binary_set1.size(); ++i) {
+            CHECK_EQUAL(binary_set1.get(i), binary_set2.get(i));
+        }
+        for (size_t i = 1; i < mixed_set1.size(); ++i) {
+            auto prev = mixed_set1.get_any(i - 1);
+            auto cur = mixed_set1.get_any(i);
+            CHECK_LESS(prev, cur);
         }
         for (size_t i = 1; i < string_set1.size(); ++i) {
             auto prev = string_set1.get_any(i - 1);
-            auto cur = string_set1.get_andy(i);
+            auto cur = string_set1.get_any(i);
             CHECK_LESS(prev, cur);
         }
         for (size_t i = 1; i < binary_set1.size(); ++i) {
             auto prev = binary_set1.get_any(i - 1);
-            auto cur = binary_set1.get_andy(i);
-            CHECK_LESS(prev, cur);
-        }
-        for (size_t i = 1; i < mixed_set1.size(); ++i) {
-            auto prev = mixed_set1.get_any(i - 1);
-            auto cur = mixed_set1.get_andy(i);
+            auto cur = binary_set1.get_any(i);
             CHECK_LESS(prev, cur);
         }
 
@@ -829,11 +833,10 @@ TEST_IF(Upgrade_Database_23, REALM_MAX_BPNODE_SIZE == 4 || REALM_MAX_BPNODE_SIZE
         for (auto& val : set_values) {
             mixed_set.insert(val);
             if (val.is_type(type_String) || val.is_null()) {
-                auto str = val.get<StringData>();
-                BinaryData bin(str.data(), str.size());
-                string_set.insert(str);
-                binary_set.insert(bin);
-                mixed_set.insert(bin);
+                string_set.insert(val.get<StringData>());
+            }
+            if (val.is_type(type_Binary) || val.is_null()) {
+                binary_set.insert(val.get<BinaryData>());
             }
         }
 
