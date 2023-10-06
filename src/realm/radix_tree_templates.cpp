@@ -994,6 +994,7 @@ void IndexNode<ChunkWidth>::verify() const
 #endif
 }
 
+// LCOV_EXCL_START
 template <size_t ChunkWidth>
 void IndexNode<ChunkWidth>::print() const
 {
@@ -1086,6 +1087,7 @@ void IndexNode<ChunkWidth>::print() const
         std::cout << "}\n";
     }
 }
+// LCOV_EXCL_STOP
 
 template <size_t ChunkWidth>
 void RadixTree<ChunkWidth>::insert(ObjKey value, const Mixed& key)

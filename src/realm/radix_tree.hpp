@@ -243,7 +243,6 @@ public:
 
     // RadixTree specials
     void insert(ObjKey value, IndexKey<ChunkWidth> key);
-    IndexIterator find(IndexKey<ChunkWidth> key);
 
 private:
     void erase(ObjKey key, const Mixed& new_value);

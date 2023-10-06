@@ -72,7 +72,7 @@ TEST_TYPES(IndexKey_Get, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf
         CHECK(val);
         CHECK_EQUAL(i, *val);
 
-        const size_t num_chunks_per_int = std::ceil(double(64) / double(ChunkWidth));
+        const size_t num_chunks_per_int = size_t(std::ceil(double(64) / double(ChunkWidth)));
 
         size_t chunk_count = 1;
         while (key.get_next()) {
@@ -118,8 +118,8 @@ TEST_TYPES(RadixTree_BuildIndexString, ChunkOf<8>)
 {
     constexpr size_t ChunkWidth = TEST_TYPE::value;
 
-    Table::IndexMaker hook = [](ColKey, const ClusterColumn& cluster, Allocator& alloc, ref_type ref, Array* parent,
-                                size_t col_ndx) -> std::unique_ptr<SearchIndex> {
+    Table::IndexMaker hook = [&](ColKey, const ClusterColumn& cluster, Allocator& alloc, ref_type ref, Array* parent,
+                                 size_t col_ndx) -> std::unique_ptr<SearchIndex> {
         if (parent) {
             return std::make_unique<RadixTree<ChunkWidth>>(ref, parent, col_ndx, cluster, alloc);
         }
@@ -283,8 +283,8 @@ TEST_TYPES(IndexNode, ChunkOf<4>, ChunkOf<5>, ChunkOf<6>, ChunkOf<7>, ChunkOf<8>
 {
     constexpr size_t ChunkWidth = TEST_TYPE::value;
 
-    Table::IndexMaker hook = [](ColKey col_key, const ClusterColumn& cluster, Allocator& alloc, ref_type ref,
-                                Array* parent, size_t col_ndx) -> std::unique_ptr<SearchIndex> {
+    Table::IndexMaker hook = [&](ColKey col_key, const ClusterColumn& cluster, Allocator& alloc, ref_type ref,
+                                 Array* parent, size_t col_ndx) -> std::unique_ptr<SearchIndex> {
         if (parent) {
             if (col_key.get_type() == col_type_Int || col_key.get_type() == col_type_Timestamp ||
                 col_key.get_type() == col_type_String) {

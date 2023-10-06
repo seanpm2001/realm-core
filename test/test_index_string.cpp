@@ -1063,14 +1063,17 @@ TEST_TYPES(StringIndex_Zero_Crash, string_column, nullable_string_column, enum_c
     TEST_TYPE test_resources;
     typename TEST_TYPE::ColumnTestType& col = test_resources.get_column();
     // StringIndex could crash if strings ended with one or more 0-bytes
-    col.add(StringData(""));
-    col.add(StringData("\0", 1));
-    col.add(StringData("\0\0", 2));
+    StringData empty("");
+    StringData zero1("\0", 1);
+    StringData zero2("\0\0", 2);
+    col.add(empty);
+    col.add(zero1);
+    col.add(zero2);
     col.create_search_index();
 
-    CHECK_EQUAL(col.find_first(StringData("")), 0);
-    CHECK_EQUAL(col.find_first(StringData("\0", 1)), 1);
-    CHECK_EQUAL(col.find_first(StringData("\0\0", 2)), 2);
+    CHECK_EQUAL(col.find_first(empty), 0);
+    CHECK_EQUAL(col.find_first(zero1), 1);
+    CHECK_EQUAL(col.find_first(zero2), 2);
 }
 
 template <typename TestType>
