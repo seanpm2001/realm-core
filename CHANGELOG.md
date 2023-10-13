@@ -10,7 +10,7 @@
 * Fix compilation with non-beta Xcode 15. Building for visionOS now requires explicitly specifying `-DCMAKE_XCODE_ATTRIBUTE_SDKROOT=xros` (PR [#7055](https://github.com/realm/realm-core/pull/7055)).
 
 ### Breaking changes
-* None.
+* Removed sync::ClientConfig::dry_run. This was not actually used anywhere.
 
 ### Compatibility
 * Fileformat: Generates files with format v23. Reads and automatically upgrade from fileformat v5.

@@ -146,7 +146,6 @@ ClientImpl::ClientImpl(ClientConfig config)
     , m_fast_reconnect_limit{config.fast_reconnect_limit}
     , m_reconnect_backoff_info{config.reconnect_backoff_info}
     , m_disable_upload_activation_delay{config.disable_upload_activation_delay}
-    , m_dry_run{config.dry_run}
     , m_enable_default_port_hack{config.enable_default_port_hack}
     , m_disable_upload_compaction{config.disable_upload_compaction}
     , m_fix_up_object_ids{config.fix_up_object_ids}
@@ -193,11 +192,6 @@ ClientImpl::ClientImpl(ClientConfig config)
 
     if (config.reconnect_mode != ReconnectMode::normal) {
         logger.warn("Testing/debugging feature 'nonnormal reconnect mode' enabled - "
-                    "never do this in production!");
-    }
-
-    if (config.dry_run) {
-        logger.warn("Testing/debugging feature 'dry run' enabled - "
                     "never do this in production!");
     }
 
@@ -1649,36 +1643,35 @@ void Session::activate()
     logger.debug("Activating"); // Throws
 
     bool has_pending_client_reset = false;
-    if (REALM_LIKELY(!get_client().is_dry_run())) {
-        // The reason we need a mutable reference from get_client_reset_config() is because we
-        // don't want the session to keep a strong reference to the client_reset_config->fresh_copy
-        // DB. If it did, then the fresh DB would stay alive for the duration of this sync session
-        // and we want to clean it up once the reset is finished. Additionally, the fresh copy will
-        // be set to a new copy on every reset so there is no reason to keep a reference to it.
-        // The modification to the client reset config happens via std::move(client_reset_config->fresh_copy).
-        // If the client reset config were a `const &` then this std::move would create another strong
-        // reference which we don't want to happen.
-        util::Optional<ClientReset>& client_reset_config = get_client_reset_config();
 
-        bool file_exists = util::File::exists(get_realm_path());
+    // The reason we need a mutable reference from get_client_reset_config() is because we
+    // don't want the session to keep a strong reference to the client_reset_config->fresh_copy
+    // DB. If it did, then the fresh DB would stay alive for the duration of this sync session
+    // and we want to clean it up once the reset is finished. Additionally, the fresh copy will
+    // be set to a new copy on every reset so there is no reason to keep a reference to it.
+    // The modification to the client reset config happens via std::move(client_reset_config->fresh_copy).
+    // If the client reset config were a `const &` then this std::move would create another strong
+    // reference which we don't want to happen.
+    util::Optional<ClientReset>& client_reset_config = get_client_reset_config();
 
-        logger.info("client_reset_config = %1, Realm exists = %2, "
-                    "client reset = %3",
-                    client_reset_config ? "true" : "false", file_exists ? "true" : "false",
-                    (client_reset_config && file_exists) ? "true" : "false"); // Throws
-        if (client_reset_config && !m_client_reset_operation) {
-            m_client_reset_operation = std::make_unique<_impl::ClientResetOperation>(
-                logger, get_db(), std::move(client_reset_config->fresh_copy), client_reset_config->mode,
-                std::move(client_reset_config->notify_before_client_reset),
-                std::move(client_reset_config->notify_after_client_reset),
-                client_reset_config->recovery_is_allowed); // Throws
-        }
+    bool file_exists = util::File::exists(get_realm_path());
 
-        if (!m_client_reset_operation) {
-            const ClientReplication& repl = access_realm(); // Throws
-            repl.get_history().get_status(m_last_version_available, m_client_file_ident, m_progress,
-                                          &has_pending_client_reset); // Throws
-        }
+    logger.info("client_reset_config = %1, Realm exists = %2, "
+                "client reset = %3",
+                client_reset_config ? "true" : "false", file_exists ? "true" : "false",
+                (client_reset_config && file_exists) ? "true" : "false"); // Throws
+    if (client_reset_config && !m_client_reset_operation) {
+        m_client_reset_operation = std::make_unique<_impl::ClientResetOperation>(
+            logger, get_db(), std::move(client_reset_config->fresh_copy), client_reset_config->mode,
+            std::move(client_reset_config->notify_before_client_reset),
+            std::move(client_reset_config->notify_after_client_reset),
+            client_reset_config->recovery_is_allowed); // Throws
+    }
+
+    if (!m_client_reset_operation) {
+        const ClientReplication& repl = access_realm(); // Throws
+        repl.get_history().get_status(m_last_version_available, m_client_file_ident, m_progress,
+                                      &has_pending_client_reset); // Throws
     }
     logger.debug("client_file_ident = %1, client_file_ident_salt = %2", m_client_file_ident.ident,
                  m_client_file_ident.salt); // Throws
@@ -1971,10 +1964,6 @@ void Session::send_query_change_message()
     REALM_ASSERT(m_pending_flx_sub_set);
     REALM_ASSERT_3(m_pending_flx_sub_set->query_version, >, m_last_sent_flx_query_version);
 
-    if (REALM_UNLIKELY(get_client().is_dry_run())) {
-        return;
-    }
-
     auto sub_store = get_flx_subscription_store();
     auto latest_sub_set = sub_store->get_by_version(m_pending_flx_sub_set->query_version);
     auto latest_queries = latest_sub_set.to_ext_json();
@@ -1997,9 +1986,6 @@ void Session::send_upload_message()
     REALM_ASSERT_EX(m_state == Active, m_state);
     REALM_ASSERT(m_ident_message_sent);
     REALM_ASSERT(!m_unbind_message_sent);
-
-    if (REALM_UNLIKELY(get_client().is_dry_run()))
-        return;
 
     version_type target_upload_version = get_db()->get_version_of_latest_snapshot();
     if (m_pending_flx_sub_set) {
@@ -2247,12 +2233,6 @@ Status Session::receive_ident_message(SaltedFileIdent client_file_ident)
     }
 
     m_client_file_ident = client_file_ident;
-
-    if (REALM_UNLIKELY(get_client().is_dry_run())) {
-        // Ready to send the IDENT message
-        ensure_enlisted_to_send(); // Throws
-        return Status::OK();       // Success
-    }
 
     // access before the client reset (if applicable) because
     // the reset can take a while and the sync session might have died
