@@ -16,23 +16,101 @@
  *
  **************************************************************************/
 
-
 #include "realm/set.hpp"
+
 #include "realm/array_basic.hpp"
-#include "realm/array_integer.hpp"
-#include "realm/array_bool.hpp"
-#include "realm/array_string.hpp"
 #include "realm/array_binary.hpp"
-#include "realm/array_timestamp.hpp"
+#include "realm/array_bool.hpp"
 #include "realm/array_decimal128.hpp"
 #include "realm/array_fixed_bytes.hpp"
-#include "realm/array_typed_link.hpp"
+#include "realm/array_integer.hpp"
 #include "realm/array_mixed.hpp"
+#include "realm/array_string.hpp"
+#include "realm/array_timestamp.hpp"
+#include "realm/array_typed_link.hpp"
 #include "realm/replication.hpp"
+
+#include <numeric> // std::iota
 
 namespace realm {
 
-// FIXME: This method belongs in obj.cpp.
+template <typename T>
+UpdateStatus Set<T>::update_if_needed() const
+{
+    auto status = Base::update_if_needed();
+    switch (status) {
+        case UpdateStatus::Detached: {
+            m_tree.reset();
+            return UpdateStatus::Detached;
+        }
+        case UpdateStatus::NoChange:
+            if (m_tree && m_tree->is_attached()) {
+                return UpdateStatus::NoChange;
+            }
+            // The tree has not been initialized yet for this accessor, so
+            // perform lazy initialization by treating it as an update.
+            [[fallthrough]];
+        case UpdateStatus::Updated: {
+            bool attached = init_from_parent(false);
+            return attached ? UpdateStatus::Updated : UpdateStatus::Detached;
+        }
+    }
+    REALM_UNREACHABLE();
+}
+
+template <typename T>
+UpdateStatus Set<T>::ensure_created()
+{
+    auto status = Base::ensure_created();
+    switch (status) {
+        case UpdateStatus::Detached:
+            break; // Not possible (would have thrown earlier).
+        case UpdateStatus::NoChange: {
+            if (m_tree && m_tree->is_attached()) {
+                return UpdateStatus::NoChange;
+            }
+            // The tree has not been initialized yet for this accessor, so
+            // perform lazy initialization by treating it as an update.
+            [[fallthrough]];
+        }
+        case UpdateStatus::Updated: {
+            bool attached = init_from_parent(true);
+            REALM_ASSERT(attached);
+            return attached ? UpdateStatus::Updated : UpdateStatus::Detached;
+        }
+    }
+
+    REALM_UNREACHABLE();
+}
+
+static bool do_init_from_parent(BPlusTreeBase& tree, bool allow_create)
+{
+    if (tree.init_from_parent()) {
+        // All is well
+        return true;
+    }
+
+    if (!allow_create) {
+        return false;
+    }
+
+    // The ref in the column was NULL, create the tree in place.
+    tree.create();
+    REALM_ASSERT(tree.is_attached());
+    return true;
+}
+
+template <typename T>
+bool Set<T>::init_from_parent(bool allow_create) const
+{
+    if (!m_tree) {
+        m_tree.reset(new BPlusTree<T>(m_obj.get_alloc()));
+        const ArrayParent* parent = this;
+        m_tree->set_parent(const_cast<ArrayParent*>(parent), 0);
+    }
+    return do_init_from_parent(*m_tree, allow_create);
+}
+
 SetBasePtr Obj::get_setbase_ptr(ColKey col_key) const
 {
     auto attr = get_table()->get_column_attr(col_key);
@@ -136,7 +214,7 @@ void Set<ObjKey>::do_insert(size_t ndx, ObjKey target_key)
     auto origin_table = m_obj.get_table();
     auto target_table_key = origin_table->get_opposite_table_key(m_col_key);
     m_obj.set_backlink(m_col_key, {target_table_key, target_key});
-    m_tree->insert(ndx, target_key);
+    tree().insert(ndx, target_key);
     if (target_key.is_unresolved()) {
         m_tree->set_context_flag(true);
     }
@@ -162,7 +240,7 @@ void Set<ObjKey>::do_erase(size_t ndx)
 
         // FIXME: Exploit the fact that the values are sorted and unresolved
         // keys have a negative value.
-        _impl::check_for_last_unresolved(m_tree.get());
+        _impl::check_for_last_unresolved(&tree());
     }
 }
 
@@ -181,7 +259,7 @@ template <>
 void Set<ObjLink>::do_insert(size_t ndx, ObjLink target_link)
 {
     m_obj.set_backlink(m_col_key, target_link);
-    m_tree->insert(ndx, target_link);
+    tree().insert(ndx, target_link);
 }
 
 template <>
@@ -208,7 +286,7 @@ void Set<Mixed>::do_insert(size_t ndx, Mixed value)
         m_obj.get_table()->get_parent_group()->validate(target_link);
         m_obj.set_backlink(m_col_key, target_link);
     }
-    m_tree->insert(ndx, value);
+    tree().insert(ndx, value);
 }
 
 template <>
@@ -248,16 +326,16 @@ void Set<Mixed>::migrate()
     // We should just move all string values to be before the binary values
     size_t first_binary = size();
     for (size_t n = 0; n < size(); n++) {
-        if (m_tree->get(n).is_type(type_Binary)) {
+        if (tree().get(n).is_type(type_Binary)) {
             first_binary = n;
             break;
         }
     }
 
     for (size_t n = first_binary; n < size(); n++) {
-        if (m_tree->get(n).is_type(type_String)) {
-            m_tree->insert(first_binary, Mixed());
-            m_tree->swap(n + 1, first_binary);
+        if (tree().get(n).is_type(type_String)) {
+            tree().insert(first_binary, Mixed());
+            tree().swap(n + 1, first_binary);
             m_tree->erase(n + 1);
             first_binary++;
         }
@@ -275,7 +353,7 @@ void LnkSet::remove_target_row(size_t link_ndx)
 void LnkSet::remove_all_target_rows()
 {
     if (m_set.update()) {
-        _impl::TableFriend::batch_erase_rows(*get_target_table(), *m_set.m_tree);
+        _impl::TableFriend::batch_erase_rows(*get_target_table(), m_set.tree());
     }
 }
 
