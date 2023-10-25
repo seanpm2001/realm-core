@@ -35,40 +35,34 @@ class Mixed;
 
 class QueryStateBase {
 public:
-    int64_t m_minmax_key = -1; // used only for min/max, to save index of current min/max value
-    uint64_t m_key_offset = 0;
-    const ArrayUnsigned* m_key_values = nullptr;
     QueryStateBase(size_t limit = -1)
         : m_limit(limit)
     {
     }
-    virtual ~QueryStateBase() {}
 
     // Called when we have a match.
     // The return value indicates if the query should continue.
     virtual bool match(size_t, Mixed) noexcept = 0;
 
-    virtual bool match_pattern(size_t, uint64_t)
-    {
-        return false;
-    }
-
-    inline size_t match_count() const noexcept
+    size_t match_count() const noexcept
     {
         return m_match_count;
     }
 
-    inline size_t limit() const noexcept
+    size_t limit() const noexcept
     {
         return m_limit;
     }
+
+    uint64_t key_offset = 0;
+    const ArrayUnsigned* key_values = nullptr;
 
 protected:
     size_t m_match_count = 0;
     size_t m_limit;
 
-private:
-    virtual void dyncast();
+    // Disallow deleting via a base class pointer
+    ~QueryStateBase() = default;
 };
 
 template <class>

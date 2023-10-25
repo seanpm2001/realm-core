@@ -1003,7 +1003,7 @@ void Query::aggregate(QueryStateBase& st, ColKey column_key) const
                 for (size_t i = 0; i < num_keys; ++i) {
                     auto obj = m_table->get_object(keys->get(i));
                     if (pn->m_children.empty() || eval_object(obj)) {
-                        st.m_key_offset = obj.get_key().value;
+                        st.key_offset = obj.get_key().value;
                         st.match(0, obj.get<T>(column_key));
                     }
                 }
@@ -1017,8 +1017,8 @@ void Query::aggregate(QueryStateBase& st, ColKey column_key) const
                     size_t e = cluster->node_size();
                     node->set_cluster(cluster);
                     cluster->init_leaf(column_key, &leaf);
-                    st.m_key_offset = cluster->get_offset();
-                    st.m_key_values = cluster->get_key_array();
+                    st.key_offset = cluster->get_offset();
+                    st.key_values = cluster->get_key_array();
                     aggregate_internal(node, &st, 0, e, &leaf);
                     return IteratorControl::AdvanceToNext;
                 };
@@ -1029,7 +1029,7 @@ void Query::aggregate(QueryStateBase& st, ColKey column_key) const
         else {
             m_view->for_each([&](const Obj& obj) {
                 if (eval_object(obj)) {
-                    st.m_key_offset = obj.get_key().value;
+                    st.key_offset = obj.get_key().value;
                     st.match(0, obj.get<T>(column_key));
                 }
                 return IteratorControl::AdvanceToNext;
@@ -1292,7 +1292,7 @@ void Query::do_find_all(QueryStateBase& st) const
         for (size_t t = 0; t < sz; t++) {
             const Obj obj = m_view->get_object(t);
             if (eval_object(obj)) {
-                st.m_key_offset = obj.get_key().value;
+                st.key_offset = obj.get_key().value;
                 if (!st.match(0, Mixed()))
                     break;
             }
@@ -1302,8 +1302,8 @@ void Query::do_find_all(QueryStateBase& st) const
         if (!has_cond) {
             auto f = [&st](const Cluster* cluster) {
                 size_t sz = cluster->node_size();
-                st.m_key_offset = cluster->get_offset();
-                st.m_key_values = cluster->get_key_array();
+                st.key_offset = cluster->get_offset();
+                st.key_values = cluster->get_key_array();
                 for (size_t i = 0; i < sz; i++) {
                     if (!st.match(i, Mixed()))
                         return IteratorControl::Stop;
@@ -1326,7 +1326,7 @@ void Query::do_find_all(QueryStateBase& st) const
                 const size_t num_keys = keys->size();
                 for (size_t i = 0; i < num_keys; ++i) {
                     ObjKey key = keys->get(i);
-                    st.m_key_offset = key.value;
+                    st.key_offset = key.value;
                     if (pn->m_children.empty()) {
                         // No more conditions - just add key
                         if (!st.match(0, Mixed()))
@@ -1348,8 +1348,8 @@ void Query::do_find_all(QueryStateBase& st) const
                 auto f = [&node, &st, this](const Cluster* cluster) {
                     size_t e = cluster->node_size();
                     node->set_cluster(cluster);
-                    st.m_key_offset = cluster->get_offset();
-                    st.m_key_values = cluster->get_key_array();
+                    st.key_offset = cluster->get_offset();
+                    st.key_values = cluster->get_key_array();
                     aggregate_internal(node, &st, 0, e, nullptr);
                     // Stop if limit is reached
                     return st.match_count() == st.limit() ? IteratorControl::Stop : IteratorControl::AdvanceToNext;
@@ -1463,8 +1463,8 @@ size_t Query::do_count(size_t limit) const
             auto f = [&node, &st, this](const Cluster* cluster) {
                 size_t e = cluster->node_size();
                 node->set_cluster(cluster);
-                st.m_key_offset = cluster->get_offset();
-                st.m_key_values = cluster->get_key_array();
+                st.key_offset = cluster->get_offset();
+                st.key_values = cluster->get_key_array();
                 aggregate_internal(node, &st, 0, e, nullptr);
                 // Stop if limit or end is reached
                 return st.match_count() == st.limit() ? IteratorControl::Stop : IteratorControl::AdvanceToNext;

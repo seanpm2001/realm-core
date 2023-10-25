@@ -353,6 +353,17 @@ inline void ParentNode::construct_index_evaluator(std::optional<IndexEvaluator>&
     }
 }
 
+struct QueryStateColumnMap : public QueryStateBase {
+    QueryStateBase* state;
+    ArrayPayload* column;
+
+    bool match(size_t index, Mixed) noexcept override
+    {
+        auto val = column->get_any(index);
+        return state->match(index, val);
+    }
+};
+
 template <class LeafType>
 class IntegerNodeBase : public ParentNode {
 public:
@@ -397,14 +408,13 @@ protected:
     size_t find_all_local(size_t start, size_t end)
     {
         if (run_single()) {
-            m_leaf->template find<TConditionFunction>(m_value, start, end, m_state, nullptr);
+            m_leaf->template find<TConditionFunction>(m_value, start, end, m_state);
         }
         else {
-            auto callback = [this](size_t index) {
-                auto val = m_source_column->get_any(index);
-                return m_state->match(index, val);
-            };
-            m_leaf->template find<TConditionFunction>(m_value, start, end, m_state, callback);
+            QueryStateColumnMap adaptor;
+            adaptor.column = m_source_column;
+            adaptor.state = m_state;
+            m_leaf->template find<TConditionFunction>(m_value, start, end, &adaptor);
         }
 
         return end;

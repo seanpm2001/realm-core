@@ -68,7 +68,7 @@ public:
                 return true; // no match, continue searching
             }
             ++m_match_count;
-            m_minmax_key = (m_key_values ? m_key_values->get(index) : index) + m_key_offset;
+            minmax_key = (key_values ? key_values->get(index) : index) + key_offset;
         }
         return m_limit > m_match_count;
     }
@@ -76,6 +76,8 @@ public:
     {
         return m_state.is_null() ? Mixed() : m_state.result();
     }
+
+    int64_t minmax_key = -1;
 
 private:
     State<typename util::RemoveOptional<R>::type> m_state;
@@ -218,7 +220,7 @@ private:
         QueryState<typename util::RemoveOptional<T>::type> st;
         target.template aggregate<T>(st, col_key);
         if (return_ndx)
-            *return_ndx = ObjKey(st.m_minmax_key);
+            *return_ndx = ObjKey(st.minmax_key);
         return st.get_result();
     }
 };

@@ -2318,8 +2318,8 @@ void Table::aggregate(QueryStateBase& st, ColKey column_key) const
     auto f = [&leaf, column_key, &st](const Cluster* cluster) {
         // direct aggregate on the leaf
         cluster->init_leaf(column_key, &leaf);
-        st.m_key_offset = cluster->get_offset();
-        st.m_key_values = cluster->get_key_array();
+        st.key_offset = cluster->get_offset();
+        st.key_values = cluster->get_key_array();
 
         bool cont = true;
         size_t sz = leaf.size();
