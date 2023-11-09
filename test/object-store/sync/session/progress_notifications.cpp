@@ -59,13 +59,14 @@ TEST_CASE("progress notification", "[sync][session][progress]") {
         progress.set_local_version(1);
         progress.update(0, 0, 0, 0, 1, 1);
 
-        bool callback_was_called = false;
         SECTION("for upload notifications, with no data transfer ongoing") {
+            REQUIRE_FALSE(callback_was_called);
             register_default_upload_callback();
             REQUIRE(callback_was_called);
         }
 
         SECTION("for download notifications, with no data transfer ongoing") {
+            REQUIRE_FALSE(callback_was_called);
             register_default_download_callback();
             REQUIRE(callback_was_called);
         }
