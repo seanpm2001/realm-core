@@ -51,7 +51,8 @@ struct SyncClient;
 class SyncProgressNotifier {
 public:
     enum class NotifierType { upload, download };
-    using ProgressNotifierCallback = void(uint64_t transferred_bytes, uint64_t transferrable_bytes);
+    using ProgressNotifierCallback = void(uint64_t transferred_bytes, uint64_t transferrable_bytes,
+                                          double progress_estimate);
 
     uint64_t register_callback(std::function<ProgressNotifierCallback>, NotifierType direction, bool is_streaming);
     void unregister_callback(uint64_t);
@@ -69,6 +70,8 @@ private:
         uint64_t downloadable;
         uint64_t uploaded;
         uint64_t downloaded;
+        double upload_estimate;
+        double dowload_estimate;
         uint64_t snapshot_version;
     };
 
