@@ -43,7 +43,7 @@
 
 // Unqualified %code blocks.
 
-#include <realm/parser/driver.hpp>
+#include <realm/parser/query_ast.hpp>
 #include <realm/table.hpp>
 using namespace realm;
 using namespace realm::query_parser;

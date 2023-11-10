@@ -16,7 +16,7 @@
  *
  **************************************************************************/
 
-#include "realm/parser/driver.hpp"
+#include "realm/parser/query_ast.hpp"
 #include "realm/parser/keypath_mapping.hpp"
 #include "realm/parser/query_parser.hpp"
 #include "realm/sort_descriptor.hpp"

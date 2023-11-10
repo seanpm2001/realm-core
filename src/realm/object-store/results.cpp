@@ -26,7 +26,7 @@
 #include <realm/object-store/schema.hpp>
 #include <realm/object-store/class.hpp>
 #include <realm/object-store/sectioned_results.hpp>
-
+#include <realm/util/bson/bson.hpp>
 #include <realm/set.hpp>
 
 #include <stdexcept>
@@ -53,6 +53,16 @@ Results::Results(SharedRealm r, Query q, DescriptorOrdering o)
     , m_descriptor_ordering(std::move(o))
     , m_mode(Mode::Query)
     , m_mutex(m_realm && m_realm->is_frozen())
+{
+}
+
+Results::Results(SharedRealm r, ConstTableRef table, const bson::BsonDocument& document)
+    : Results(r, table->query(document))
+{
+}
+
+Results::Results(SharedRealm r, ConstTableRef table, const std::string& document)
+    : Results(r, table->query(static_cast<bson::BsonDocument>(bson::parse(document))))
 {
 }
 
@@ -922,6 +932,16 @@ Results Results::filter(Query&& q) const
     if (m_descriptor_ordering.will_apply_limit())
         throw IllegalOperation("Filtering a Results with a limit is not yet implemented");
     return Results(m_realm, get_query().and_query(std::move(q)), m_descriptor_ordering);
+}
+
+Results Results::find(const bson::BsonDocument& document) const
+{
+    return filter(m_table->query(document));
+}
+
+Results Results::find(const std::string& document) const
+{
+    return find(static_cast<bson::BsonDocument>(bson::parse(document)));
 }
 
 Results Results::limit(size_t max_count) const

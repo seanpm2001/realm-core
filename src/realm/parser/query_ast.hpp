@@ -145,8 +145,7 @@ public:
 
 /******************************** Value Nodes ********************************/
 
-class ValueNode : public ExpressionNode {
-};
+class ValueNode : public ExpressionNode {};
 
 class ConstantNode : public ValueNode {
 public:
@@ -618,6 +617,8 @@ public:
     // Run the parser on file F.  Return 0 on success.
     int parse(const std::string& str);
 
+    void parse(const bson::BsonDocument& document);
+
     // Handling the scanner.
     void scan_begin(void*, bool trace_scanning);
 
@@ -649,6 +650,9 @@ private:
 
     static NoArguments s_default_args;
     static query_parser::KeyPathMapping s_default_mapping;
+
+    std::vector<QueryNode*> get_query_nodes(const bson::BsonArray& bson_array);
+    QueryNode* get_query_node(const bson::BsonDocument& document);
 };
 
 template <class T>
